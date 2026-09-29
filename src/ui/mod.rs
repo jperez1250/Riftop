@@ -1,6 +1,8 @@
 //! Terminal UI built with ratatui.
 
 use std::io::{self, Stdout};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
@@ -18,6 +20,7 @@ use crate::capture::SharedFlows;
 use crate::dns::DnsCache;
 use crate::filters::ScreenFilter;
 use crate::flow::{format_bytes, format_rate, Aggregate};
+use crate::top::{format_top_row, top_hosts, top_ports, top_protocols, ViewMode};
 
 pub struct App {
     pub flows: SharedFlows,
@@ -31,6 +34,8 @@ pub struct App {
     pub screen_filter: ScreenFilter,
     pub capture_filter: Option<String>,
     pub offline: bool,
+    pub view: ViewMode,
+    pub dropped: Option<Arc<AtomicU64>>,
 }
 
 impl App {
@@ -54,6 +59,8 @@ impl App {
             screen_filter: ScreenFilter::default(),
             capture_filter: None,
             offline: false,
+            view: ViewMode::Flows,
+            dropped: None,
         }
     }
 }
@@ -64,8 +71,7 @@ pub fn init_terminal() -> io::Result<Term> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    Terminal::new(backend)
+    Terminal::new(CrosstermBackend::new(stdout))
 }
 
 pub fn restore_terminal(terminal: &mut Term) -> io::Result<()> {
@@ -105,6 +111,11 @@ pub fn run_ui(app: &mut App, terminal: &mut Term, interval_ms: u64) -> io::Resul
                         app.aggregate = Aggregate::Pair;
                         app.flows.lock().set_aggregate(Aggregate::Pair);
                     }
+                    KeyCode::Char('1') => app.view = ViewMode::Flows,
+                    KeyCode::Char('2') => app.view = ViewMode::Hosts,
+                    KeyCode::Char('3') => app.view = ViewMode::Ports,
+                    KeyCode::Char('4') => app.view = ViewMode::Protocols,
+                    KeyCode::Tab => app.view = app.view.cycle(),
                     _ => {}
                 }
             }
@@ -115,8 +126,9 @@ pub fn run_ui(app: &mut App, terminal: &mut Term, interval_ms: u64) -> io::Resul
         }
 
         if !app.offline {
-            let mut table = app.flows.lock();
-            table.expire(Instant::now(), std::time::Duration::from_secs(60));
+            app.flows
+                .lock()
+                .expire(Instant::now(), std::time::Duration::from_secs(60));
         }
     }
     Ok(())
@@ -141,6 +153,11 @@ fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
     let now = Instant::now();
     let snap = app.flows.lock().snapshot(app.max_lines, now);
     let g = &snap.globals;
+    let drop_n = app
+        .dropped
+        .as_ref()
+        .map(|d| d.load(Ordering::Relaxed))
+        .unwrap_or(0);
 
     let agg = match app.aggregate {
         Aggregate::Pair => "pair",
@@ -151,25 +168,27 @@ fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
     let bpf = app.capture_filter.as_deref().unwrap_or("(none)");
 
     let line1 = format!(
-        " {mode}  iface: {}  |  agg: {agg}  |  DNS: {}  |  ports: {} ",
+        " {mode}  iface: {}  |  view: {}  |  agg: {agg}  |  DNS: {} ",
         app.interface,
+        app.view.title(),
         if app.enable_dns { "on" } else { "off" },
-        if app.show_ports { "on" } else { "off" },
     );
-    let line2 = format!(
-        " CAPTURE FILTER: {bpf}",
-    );
+    let line2 = format!(" CAPTURE FILTER: {bpf}");
     let line3 = format!(
-        " CAPTURED: {} pkts / {}   VISIBLE: {} flows   TX {}  RX {} ",
+        " CAPTURED: {} pkts / {}   VISIBLE: {}   TX {}  RX {}   DROP {} ",
         g.packets_accepted,
         format_bytes(g.bytes_total),
         snap.flows.len().min(app.max_lines),
         format_bytes(g.bytes_sent),
         format_bytes(g.bytes_recv),
+        drop_n,
     );
 
     let text = vec![
-        Line::from(Span::styled(line1, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            line1,
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )),
         Line::from(Span::styled(line2, Style::default().fg(Color::Yellow))),
         Line::from(Span::styled(line3, Style::default().fg(Color::Green))),
     ];
@@ -183,7 +202,7 @@ fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn draw_table(f: &mut Frame<'_>, area: Rect, app: &App) {
     let now = Instant::now();
-    let snap = app.flows.lock().snapshot(app.max_lines * 2, now);
+    let snap = app.flows.lock().snapshot(256, now);
 
     if app.enable_dns {
         for stats in &snap.flows {
@@ -192,6 +211,23 @@ fn draw_table(f: &mut Frame<'_>, area: Rect, app: &App) {
         }
     }
 
+    match app.view {
+        ViewMode::Flows => draw_flows(f, area, app, &snap, now),
+        ViewMode::Hosts => draw_top_rows(f, area, app.view.title(), &top_hosts(&snap, now, app.max_lines)),
+        ViewMode::Ports => draw_top_rows(f, area, app.view.title(), &top_ports(&snap, now, app.max_lines)),
+        ViewMode::Protocols => {
+            draw_top_rows(f, area, app.view.title(), &top_protocols(&snap, now, app.max_lines))
+        }
+    }
+}
+
+fn draw_flows(
+    f: &mut Frame<'_>,
+    area: Rect,
+    app: &App,
+    snap: &crate::flow::Snapshot,
+    now: Instant,
+) {
     let header_cells = ["#", "Host pair", "2s", "10s", "40s", "Total"]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
@@ -215,16 +251,14 @@ fn draw_table(f: &mut Frame<'_>, area: Rect, app: &App) {
             } else {
                 format!("{a} \u2194 {b}")
             };
-
-            let cells = [
+            Row::new([
                 Cell::from((i + 1).to_string()),
                 Cell::from(pair),
                 Cell::from(format_rate(stats.rate_2s(now))),
                 Cell::from(format_rate(stats.rate_10s(now))),
                 Cell::from(format_rate(stats.rate_40s(now))),
                 Cell::from(format_bytes(stats.total_bytes)),
-            ];
-            Row::new(cells)
+            ])
         });
 
     let widths = [
@@ -235,11 +269,41 @@ fn draw_table(f: &mut Frame<'_>, area: Rect, app: &App) {
         Constraint::Length(10),
         Constraint::Length(10),
     ];
-
     let t = Table::new(rows, widths)
         .header(header)
         .block(Block::default().borders(Borders::ALL).title("Top flows"));
+    f.render_widget(t, area);
+}
 
+fn draw_top_rows(f: &mut Frame<'_>, area: Rect, title: &str, rows_data: &[crate::top::TopRow]) {
+    let header_cells = ["#", "Name", "2s", "10s", "40s", "Total"]
+        .iter()
+        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    let header = Row::new(header_cells).height(1);
+
+    let rows = rows_data.iter().enumerate().map(|(i, row)| {
+        let (label, r2, r10, r40, tot) = format_top_row(row);
+        Row::new([
+            Cell::from((i + 1).to_string()),
+            Cell::from(label),
+            Cell::from(r2),
+            Cell::from(r10),
+            Cell::from(r40),
+            Cell::from(tot),
+        ])
+    });
+
+    let widths = [
+        Constraint::Length(4),
+        Constraint::Percentage(45),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+        Constraint::Length(10),
+    ];
+    let t = Table::new(rows, widths)
+        .header(header)
+        .block(Block::default().borders(Borders::ALL).title(title));
     f.render_widget(t, area);
 }
 
@@ -247,16 +311,16 @@ fn draw_footer(f: &mut Frame<'_>, area: Rect) {
     let help = Line::from(vec![
         Span::styled(" q ", Style::default().fg(Color::Black).bg(Color::Cyan)),
         Span::raw("quit  "),
-        Span::styled(" n ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Span::raw("DNS  "),
-        Span::styled(" p ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::styled(" 1 ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::raw("flows  "),
+        Span::styled(" 2 ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::raw("hosts  "),
+        Span::styled(" 3 ", Style::default().fg(Color::Black).bg(Color::Cyan)),
         Span::raw("ports  "),
-        Span::styled(" a ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Span::raw("pair  "),
-        Span::styled(" s ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Span::raw("src  "),
-        Span::styled(" d ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Span::raw("dst"),
+        Span::styled(" 4 ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::raw("proto  "),
+        Span::styled(" Tab ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::raw("cycle"),
     ]);
     let footer = Paragraph::new(help).block(Block::default().borders(Borders::TOP));
     f.render_widget(footer, area);
