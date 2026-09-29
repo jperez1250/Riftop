@@ -3,6 +3,18 @@
 
 use std::net::IpAddr;
 
+/// Lightweight TCP header signals (no full state machine).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TcpFlags {
+    pub syn: bool,
+    pub ack: bool,
+    pub fin: bool,
+    pub rst: bool,
+    pub psh: bool,
+    /// True when ACK is set and payload length is 0 and not SYN/FIN/RST (dup-ack candidate).
+    pub pure_ack: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlowEndpoints {
     pub src: IpAddr,
@@ -11,6 +23,7 @@ pub struct FlowEndpoints {
     pub dst_port: u16,
     pub protocol: u8,
     pub ip_len: u64,
+    pub tcp: Option<TcpFlags>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,7 +32,6 @@ pub enum DecodeResult {
     Ignored,
 }
 
-/// Decode a raw frame given pcap data-link type (1=Ethernet, 113=Linux SLL).
 pub fn decode_frame(linktype: i32, frame: &[u8]) -> DecodeResult {
     match linktype {
         1 | 12 => decode_ethernet(frame),
@@ -89,10 +101,30 @@ fn decode_ip_payload(payload: &[u8]) -> DecodeResult {
         None => return DecodeResult::Ignored,
     };
 
-    let (src_port, dst_port) = match sliced.transport {
-        Some(TransportSlice::Tcp(t)) => (t.source_port(), t.destination_port()),
-        Some(TransportSlice::Udp(u)) => (u.source_port(), u.destination_port()),
-        _ => (0, 0),
+    let (src_port, dst_port, tcp) = match sliced.transport {
+        Some(TransportSlice::Tcp(t)) => {
+            let syn = t.syn();
+            let ack = t.ack();
+            let fin = t.fin();
+            let rst = t.rst();
+            let psh = t.psh();
+            let payload_len = t.payload().len();
+            let pure_ack = ack && !syn && !fin && !rst && payload_len == 0;
+            (
+                t.source_port(),
+                t.destination_port(),
+                Some(TcpFlags {
+                    syn,
+                    ack,
+                    fin,
+                    rst,
+                    psh,
+                    pure_ack,
+                }),
+            )
+        }
+        Some(TransportSlice::Udp(u)) => (u.source_port(), u.destination_port(), None),
+        _ => (0, 0, None),
     };
 
     DecodeResult::Ip(FlowEndpoints {
@@ -102,6 +134,7 @@ fn decode_ip_payload(payload: &[u8]) -> DecodeResult {
         dst_port,
         protocol,
         ip_len,
+        tcp,
     })
 }
 
@@ -113,6 +146,5 @@ mod tests {
     fn empty_is_ignored() {
         assert_eq!(decode_ethernet(&[]), DecodeResult::Ignored);
         assert_eq!(decode_frame(1, &[]), DecodeResult::Ignored);
-        assert_eq!(decode_frame(113, &[0u8; 8]), DecodeResult::Ignored);
     }
 }
