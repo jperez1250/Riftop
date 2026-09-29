@@ -1,10 +1,4 @@
 //! Flow engine: bounded channel between capture and aggregation.
-//!
-//! ```text
-//! capture thread  --sync_channel(N)-->  engine thread  -->  SharedFlows
-//! ```
-//! Backpressure: if the channel is full, packets are dropped and counted
-//! so a slow UI never stalls libpcap.
 
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,8 +9,8 @@ use std::time::Instant;
 
 use crate::capture::SharedFlows;
 use crate::filters::PacketFilter;
+use crate::protocols::TcpFlags;
 
-/// Decoded IP packet handed off from capture.
 #[derive(Debug, Clone)]
 pub struct PacketEvent {
     pub src: IpAddr,
@@ -26,6 +20,7 @@ pub struct PacketEvent {
     pub protocol: u8,
     pub bytes: u64,
     pub when: Instant,
+    pub tcp: Option<TcpFlags>,
 }
 
 pub struct EngineHandle {
@@ -35,7 +30,6 @@ pub struct EngineHandle {
 }
 
 impl EngineHandle {
-    /// Non-blocking send; increments dropped on full channel.
     pub fn try_send(&self, ev: PacketEvent) {
         match self.tx.try_send(ev) {
             Ok(()) => {}
@@ -89,6 +83,7 @@ fn engine_loop(
             &local_addrs,
             ev.when,
             &filter,
+            ev.tcp,
         );
     }
 }
