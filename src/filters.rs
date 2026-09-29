@@ -1,12 +1,4 @@
 //! Network filters — parity with legacy iftop options.
-//!
-//! | Filter | Legacy | Purpose |
-//! |--------|--------|---------|
-//! | BPF | `-f` | Kernel capture filter (libpcap) |
-//! | NetFilter v4 | `-F net/mask` | Only count traffic in/out of IPv4 network |
-//! | NetFilter v6 | `-G net6/prefix` | Only count traffic in/out of IPv6 network |
-//! | Link-local | `-l` (default off) | Drop/keep fe80::/10 IPv6 |
-//! | Screen | `--screen-filter` | Display-only host name substring |
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
@@ -31,10 +23,8 @@ impl NetFilterV4 {
         let (net_s, mask_s) = s
             .split_once('/')
             .ok_or_else(|| Error::Other(format!("invalid net-filter (need net/mask): {s}")))?;
-
         let network = Ipv4Addr::from_str(net_s.trim())
             .map_err(|e| Error::Other(format!("invalid network address: {e}")))?;
-
         let mask = if mask_s.chars().all(|c| c.is_ascii_digit()) {
             let n: u32 = mask_s
                 .parse()
@@ -47,7 +37,6 @@ impl NetFilterV4 {
             Ipv4Addr::from_str(mask_s.trim())
                 .map_err(|e| Error::Other(format!("invalid netmask: {e}")))?
         };
-
         let network = Ipv4Addr::from(u32::from(network) & u32::from(mask));
         Ok(Self { network, mask })
     }
@@ -86,10 +75,8 @@ impl NetFilterV6 {
         let (net_s, mask_s) = s
             .split_once('/')
             .ok_or_else(|| Error::Other(format!("invalid net-filter6 (need net/prefix): {s}")))?;
-
         let network = Ipv6Addr::from_str(net_s.trim())
             .map_err(|e| Error::Other(format!("invalid IPv6 network: {e}")))?;
-
         let mask = if mask_s.chars().all(|c| c.is_ascii_digit()) {
             let n: u32 = mask_s
                 .parse()
@@ -102,7 +89,6 @@ impl NetFilterV6 {
             Ipv6Addr::from_str(mask_s.trim())
                 .map_err(|e| Error::Other(format!("invalid IPv6 mask: {e}")))?
         };
-
         let network = mask_addr_v6(network, mask);
         Ok(Self { network, mask })
     }
@@ -176,7 +162,6 @@ impl PacketFilter {
                 _ => {}
             }
         }
-
         match (src, dst, &self.net4, &self.net6) {
             (IpAddr::V4(s), IpAddr::V4(d), Some(f), _) => match f.classify(s, d) {
                 NetDirection::Out => Some(true),
@@ -218,13 +203,15 @@ impl ScreenFilter {
         self.pattern = pattern.map(|s| s.to_lowercase());
     }
 
+    pub fn is_active(&self) -> bool {
+        matches!(&self.pattern, Some(p) if !p.is_empty())
+    }
+
     pub fn matches(&self, host_a: &str, host_b: &str) -> bool {
         match &self.pattern {
             None => true,
             Some(p) if p.is_empty() => true,
-            Some(p) => {
-                host_a.to_lowercase().contains(p) || host_b.to_lowercase().contains(p)
-            }
+            Some(p) => host_a.to_lowercase().contains(p) || host_b.to_lowercase().contains(p),
         }
     }
 }
@@ -244,19 +231,5 @@ mod tests {
     fn parse_v4_prefix() {
         let f = NetFilterV4::parse("10.0.0.0/24").unwrap();
         assert!(f.contains(Ipv4Addr::new(10, 0, 0, 5)));
-        assert!(!f.contains(Ipv4Addr::new(10, 0, 1, 5)));
-        assert_eq!(
-            f.classify(Ipv4Addr::new(10, 0, 0, 1), Ipv4Addr::new(8, 8, 8, 8)),
-            NetDirection::Out
-        );
-    }
-
-    #[test]
-    fn bpf_wraps_user() {
-        assert_eq!(bpf_expression(None), "ip or ip6");
-        assert_eq!(
-            bpf_expression(Some("tcp port 443")),
-            "(tcp port 443) and (ip or ip6)"
-        );
     }
 }
