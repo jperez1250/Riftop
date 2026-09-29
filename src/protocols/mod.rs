@@ -1,9 +1,7 @@
 //! Packet decoding — no statistics, no I/O.
-//! Replaces legacy ether.h / ip.h / tcp.h / sll.h handlers.
 
 use std::net::IpAddr;
 
-/// Lightweight TCP header signals (no full state machine).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TcpFlags {
     pub syn: bool,
@@ -11,8 +9,9 @@ pub struct TcpFlags {
     pub fin: bool,
     pub rst: bool,
     pub psh: bool,
-    /// True when ACK is set and payload length is 0 and not SYN/FIN/RST (dup-ack candidate).
     pub pure_ack: bool,
+    pub seq: u32,
+    pub payload_len: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +23,7 @@ pub struct FlowEndpoints {
     pub protocol: u8,
     pub ip_len: u64,
     pub tcp: Option<TcpFlags>,
+    pub vlan_id: Option<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +38,7 @@ pub fn decode_frame(linktype: i32, frame: &[u8]) -> DecodeResult {
         113 => decode_linux_sll(frame),
         0 | 101 => {
             if frame.len() > 4 {
-                decode_ip_payload(&frame[4..])
+                decode_ip_payload(&frame[4..], None)
             } else {
                 DecodeResult::Ignored
             }
@@ -53,17 +53,23 @@ pub fn decode_ethernet(frame: &[u8]) -> DecodeResult {
     }
     let mut ethertype = u16::from_be_bytes([frame[12], frame[13]]);
     let mut offset = 14usize;
-    if ethertype == 0x8100 {
-        if frame.len() < 18 {
+    let mut vlan_id = None;
+
+    // 802.1Q and QinQ (double tag)
+    while ethertype == 0x8100 || ethertype == 0x88a8 {
+        if frame.len() < offset + 4 {
             return DecodeResult::Ignored;
         }
-        ethertype = u16::from_be_bytes([frame[16], frame[17]]);
-        offset = 18;
+        let tci = u16::from_be_bytes([frame[offset], frame[offset + 1]]);
+        vlan_id = Some(tci & 0x0fff);
+        ethertype = u16::from_be_bytes([frame[offset + 2], frame[offset + 3]]);
+        offset += 4;
     }
+
     if ethertype != 0x0800 && ethertype != 0x86DD {
         return DecodeResult::Ignored;
     }
-    decode_ip_payload(&frame[offset..])
+    decode_ip_payload(&frame[offset..], vlan_id)
 }
 
 fn decode_linux_sll(frame: &[u8]) -> DecodeResult {
@@ -74,10 +80,10 @@ fn decode_linux_sll(frame: &[u8]) -> DecodeResult {
     if protocol != 0x0800 && protocol != 0x86DD {
         return DecodeResult::Ignored;
     }
-    decode_ip_payload(&frame[16..])
+    decode_ip_payload(&frame[16..], None)
 }
 
-fn decode_ip_payload(payload: &[u8]) -> DecodeResult {
+fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
     use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 
     let sliced = match SlicedPacket::from_ip(payload) {
@@ -108,7 +114,7 @@ fn decode_ip_payload(payload: &[u8]) -> DecodeResult {
             let fin = t.fin();
             let rst = t.rst();
             let psh = t.psh();
-            let payload_len = t.payload().len();
+            let payload_len = t.payload().len() as u32;
             let pure_ack = ack && !syn && !fin && !rst && payload_len == 0;
             (
                 t.source_port(),
@@ -120,6 +126,8 @@ fn decode_ip_payload(payload: &[u8]) -> DecodeResult {
                     rst,
                     psh,
                     pure_ack,
+                    seq: t.sequence_number(),
+                    payload_len,
                 }),
             )
         }
@@ -135,6 +143,7 @@ fn decode_ip_payload(payload: &[u8]) -> DecodeResult {
         protocol,
         ip_len,
         tcp,
+        vlan_id,
     })
 }
 
