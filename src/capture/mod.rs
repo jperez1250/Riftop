@@ -14,12 +14,10 @@ use pcap::{Active, Capture, Device};
 
 use crate::error::{Error, Result};
 use crate::flow::FlowTable;
-use crate::protocols::{decode_ethernet, DecodeResult};
+use crate::protocols::{decode_frame, DecodeResult};
 
-/// Shared state updated by the capture thread.
 pub type SharedFlows = Arc<Mutex<FlowTable>>;
 
-/// Select a capture device.
 pub fn open_device(name: Option<&str>, promiscuous: bool) -> Result<Capture<Active>> {
     let device = if let Some(n) = name {
         Device::list()?
@@ -31,6 +29,8 @@ pub fn open_device(name: Option<&str>, promiscuous: bool) -> Result<Capture<Acti
             .into_iter()
             .find(|d| {
                 !d.name.starts_with("lo")
+                    && !d.name.starts_with("docker")
+                    && !d.name.starts_with("veth")
                     && d.addresses
                         .iter()
                         .any(|a| matches!(a.addr, IpAddr::V4(_) | IpAddr::V6(_)))
@@ -48,7 +48,6 @@ pub fn open_device(name: Option<&str>, promiscuous: bool) -> Result<Capture<Acti
     Ok(cap)
 }
 
-/// Apply an optional BPF filter.
 pub fn set_filter(cap: &mut Capture<Active>, filter: Option<&str>) -> Result<()> {
     if let Some(f) = filter {
         let expr = format!("({f}) and (ip or ip6)");
@@ -59,7 +58,6 @@ pub fn set_filter(cap: &mut Capture<Active>, filter: Option<&str>) -> Result<()>
     Ok(())
 }
 
-/// Collect local addresses of the device for direction detection.
 pub fn local_addresses(name: &str) -> Vec<IpAddr> {
     Device::list()
         .unwrap_or_default()
@@ -69,17 +67,17 @@ pub fn local_addresses(name: &str) -> Vec<IpAddr> {
         .unwrap_or_default()
 }
 
-/// Spawn a background thread that continuously captures and updates the flow table.
 pub fn spawn_capture_thread(
     mut cap: Capture<Active>,
     flows: SharedFlows,
     local_addrs: Vec<IpAddr>,
 ) -> thread::JoinHandle<()> {
+    let linktype: i32 = 1;
     thread::spawn(move || loop {
         match cap.next_packet() {
             Ok(packet) => {
                 let now = Instant::now();
-                if let DecodeResult::Ip(ep) = decode_ethernet(packet.data) {
+                if let DecodeResult::Ip(ep) = decode_frame(linktype, packet.data) {
                     let mut table = flows.lock();
                     table.record(
                         ep.src,
@@ -99,10 +97,6 @@ pub fn spawn_capture_thread(
     })
 }
 
-/// Process an offline PCAP into a FlowTable (for regression tests).
-///
-/// Spaces packets 1 second apart on a synthetic timeline so rate windows (R1)
-/// remain meaningful without wall-clock waits.
 pub fn process_pcap_file(
     path: impl AsRef<std::path::Path>,
     local_addrs: &[IpAddr],
@@ -111,14 +105,14 @@ pub fn process_pcap_file(
     let mut table = FlowTable::new();
     let base = Instant::now();
     let mut index: u64 = 0;
+    let linktype: i32 = 1;
 
     loop {
         match cap.next_packet() {
             Ok(packet) => {
                 let when = base + Duration::from_secs(index);
                 index += 1;
-
-                if let DecodeResult::Ip(ep) = decode_ethernet(packet.data) {
+                if let DecodeResult::Ip(ep) = decode_frame(linktype, packet.data) {
                     table.record(
                         ep.src,
                         ep.dst,
