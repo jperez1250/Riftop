@@ -5,7 +5,7 @@ pub mod dns;
 pub mod error;
 pub mod flow;
 pub mod protocols;
+pub mod services;
 
-// Re-export commonly used items for tests
 pub use flow::{FlowKey, FlowTable};
-pub use protocols::{decode_ethernet, DecodeResult, FlowEndpoints};
+pub use protocols::{decode_ethernet, decode_frame, DecodeResult, FlowEndpoints};
