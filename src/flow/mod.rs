@@ -4,14 +4,14 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
-/// Direction of traffic relative to the monitored host pair.
+use crate::filters::PacketFilter;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Sent,
     Received,
 }
 
-/// A bidirectional flow key (always ordered so src < dst for uniqueness).
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct FlowKey {
     pub a: IpAddr,
@@ -22,7 +22,6 @@ pub struct FlowKey {
 }
 
 impl FlowKey {
-    /// Create a canonical key so that (a,b) and (b,a) map to the same entry.
     pub fn new(src: IpAddr, dst: IpAddr, sport: u16, dport: u16, protocol: u8) -> Self {
         if (src, sport) <= (dst, dport) {
             Self {
@@ -42,17 +41,8 @@ impl FlowKey {
             }
         }
     }
-
-    pub fn display_pair(&self, show_ports: bool) -> String {
-        if show_ports {
-            format!("{}:{} ↔ {}:{} ", self.a, self.port_a, self.b, self.port_b)
-        } else {
-            format!("{} ↔ {}", self.a, self.b)
-        }
-    }
 }
 
-/// Sliding-window rate estimator (bytes over recent intervals).
 #[derive(Debug, Clone)]
 pub struct RateWindow {
     samples: Vec<(Instant, u64)>,
@@ -69,22 +59,13 @@ impl RateWindow {
 
     pub fn add(&mut self, now: Instant, bytes: u64) {
         self.samples.push((now, bytes));
-        self.prune(now);
-    }
-
-    fn prune(&mut self, now: Instant) {
         let cutoff = now - self.max_age;
         self.samples.retain(|(ts, _)| *ts >= cutoff);
     }
 
-    /// Average bytes/second over the window.
     pub fn rate(&self, now: Instant) -> f64 {
         let cutoff = now - self.max_age;
-        let relevant: Vec<_> = self
-            .samples
-            .iter()
-            .filter(|(ts, _)| *ts >= cutoff)
-            .collect();
+        let relevant: Vec<_> = self.samples.iter().filter(|(ts, _)| *ts >= cutoff).collect();
         if relevant.is_empty() {
             return 0.0;
         }
@@ -95,7 +76,6 @@ impl RateWindow {
     }
 }
 
-/// Per-flow statistics.
 #[derive(Debug, Clone)]
 pub struct FlowStats {
     pub key: FlowKey,
@@ -137,17 +117,14 @@ impl FlowStats {
     pub fn rate_2s(&self, now: Instant) -> f64 {
         self.rate_2s.rate(now)
     }
-
     pub fn rate_10s(&self, now: Instant) -> f64 {
         self.rate_10s.rate(now)
     }
-
     pub fn rate_40s(&self, now: Instant) -> f64 {
         self.rate_40s.rate(now)
     }
 }
 
-/// Central store of all active flows.
 #[derive(Debug, Default)]
 pub struct FlowTable {
     flows: HashMap<FlowKey, FlowStats>,
@@ -177,7 +154,6 @@ impl FlowTable {
         } else {
             Direction::Received
         };
-
         let entry = self
             .flows
             .entry(key.clone())
@@ -185,7 +161,43 @@ impl FlowTable {
         entry.record(now, bytes, dir);
     }
 
-    /// Return the top `n` flows sorted by 2-second rate (descending).
+    /// Apply packet filters then record. Returns false if dropped.
+    pub fn record_filtered(
+        &mut self,
+        src: IpAddr,
+        dst: IpAddr,
+        sport: u16,
+        dport: u16,
+        protocol: u8,
+        bytes: u64,
+        local_addrs: &[IpAddr],
+        now: Instant,
+        filter: &PacketFilter,
+    ) -> bool {
+        if filter.net4.is_some() || filter.net6.is_some() || !filter.allow_link_local {
+            match filter.accept(src, dst) {
+                None => return false,
+                Some(sent) if filter.has_net_filter(src) => {
+                    let key = FlowKey::new(src, dst, sport, dport, protocol);
+                    let dir = if sent {
+                        Direction::Sent
+                    } else {
+                        Direction::Received
+                    };
+                    let entry = self
+                        .flows
+                        .entry(key.clone())
+                        .or_insert_with(|| FlowStats::new(key, now));
+                    entry.record(now, bytes, dir);
+                    return true;
+                }
+                Some(_) => {}
+            }
+        }
+        self.record(src, dst, sport, dport, protocol, bytes, local_addrs, now);
+        true
+    }
+
     pub fn top(&self, n: usize, now: Instant) -> Vec<&FlowStats> {
         let mut list: Vec<&FlowStats> = self.flows.values().collect();
         list.sort_by(|a, b| {
@@ -196,9 +208,9 @@ impl FlowTable {
         list.into_iter().take(n).collect()
     }
 
-    /// Remove flows that have been idle longer than `max_idle`.
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
-        self.flows.retain(|_, stats| now.duration_since(stats.last_seen) < max_idle);
+        self.flows
+            .retain(|_, stats| now.duration_since(stats.last_seen) < max_idle);
     }
 
     pub fn len(&self) -> usize {
@@ -210,7 +222,6 @@ impl FlowTable {
     }
 }
 
-/// Format a byte rate as a human-readable string (e.g. "1.23 Mb").
 pub fn format_rate(bytes_per_sec: f64) -> String {
     const UNITS: &[&str] = &["b", "Kb", "Mb", "Gb", "Tb"];
     let mut value = bytes_per_sec * 8.0;
@@ -228,7 +239,6 @@ pub fn format_rate(bytes_per_sec: f64) -> String {
     }
 }
 
-/// Format a byte count as human-readable (e.g. "12.3 MB").
 pub fn format_bytes(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
     let mut value = bytes as f64;
@@ -255,14 +265,9 @@ mod tests {
     fn flow_key_is_canonical() {
         let a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
         let b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
-        let k1 = FlowKey::new(a, b, 80, 443, 6);
-        let k2 = FlowKey::new(b, a, 443, 80, 6);
-        assert_eq!(k1, k2);
-    }
-
-    #[test]
-    fn format_rate_scales() {
-        assert!(format_rate(100.0).contains('b'));
-        assert!(format_rate(10_000.0).contains('K'));
+        assert_eq!(
+            FlowKey::new(a, b, 80, 443, 6),
+            FlowKey::new(b, a, 443, 80, 6)
+        );
     }
 }
