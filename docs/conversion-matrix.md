@@ -1,46 +1,37 @@
-# Conversion matrix: legacy C → Rust
+# Conversion matrix: legacy C → Rust (Phases 1–3)
 
 | Legacy module | Role | Rust status | Location |
 |---------------|------|-------------|----------|
-| `iftop.c` | main, capture loop, IP accounting | **Done** | `main.rs`, `capture/` |
-| `ui.c` | curses UI, rates, hotkeys | **Done (MVP)** | `ui/` (ratatui) |
-| `options.c/h` | CLI flags | **Done** | `cli.rs` |
-| `cfgfile.c` | `~/.iftoprc` | Deferred | CLI-first |
-| `resolver.c` | reverse DNS thread | **Done** | `dns/` |
-| `addr_hash.c` + `hash.c` | flow hash table | **Done** | `flow/` |
-| `sorted_list.c` | sorted display list | **Done** | `flow::top_sorted` |
-| `serv_hash.c` | port → service | **Done** | `services.rs` |
-| `screenfilter.c` | host name filter | Deferred | — |
-| `edline.c` | interactive filter edit | Deferred | — |
-| `addrs_ioctl.c` / `dlpi` | local MAC/IP | **Done** | `capture::local_addresses` |
-| `ether.h` / `ip.h` / `tcp.h` | headers | **Done** | `etherparse` + `protocols/` |
-| `sll.h` | Linux cooked | **Done** | `protocols::decode_linux_sll` |
-| `llc.h` / `ppp.h` / tokenring | rare DLTs | Deferred | graceful ignore |
-| autoconf / Makefile | build | **Done** | `Cargo.toml` |
+| `iftop.c` | main, capture loop | **Done** | `main.rs`, `capture/`, `engine.rs` |
+| `ui.c` | rates, hotkeys, bars | **Done** | `ui/` |
+| `options.c` | CLI flags | **Done** | `cli.rs` |
+| `cfgfile.c` | config | **Done** | `config.rs` + TOML |
+| `resolver.c` | reverse DNS | **Done** | `dns/` |
+| `addr_hash` / `hash` | flow table | **Done** | `flow/` |
+| `sorted_list.c` | sort | **Done** | `flow::top_sorted` / `SortBy` |
+| `serv_hash.c` | port names | **Done** | `services.rs` (`-N` disables) |
+| `screenfilter.c` | display filter | **Done** | `filters::ScreenFilter` + key `L` |
+| `edline.c` | interactive filter | **Done** | key `L` prompts substring |
+| `addrs_ioctl` | local IPs | **Done** | `capture::local_addresses` |
+| ether/ip/tcp/sll | decode | **Done** | `protocols/` + real DLT |
 
 ## Feature parity
 
 | Feature | Legacy | Rust |
 |---------|--------|------|
-| Live capture libpcap | ✓ | ✓ |
+| Live capture | ✓ | ✓ real datalink |
 | Offline PCAP | — | ✓ `--pcap` |
-| BPF filter | ✓ | ✓ |
+| BPF | ✓ | ✓ |
 | Rates 2s/10s/40s | ✓ | ✓ |
-| Bidirectional host pairs | ✓ | ✓ |
-| Direction by local IP | ✓ | ✓ |
-| Reverse DNS | ✓ | ✓ |
-| Port display + service names | ✓ | ✓ |
-| Bits/bytes toggle | ✓ | ✓ |
-| Promiscuous | ✓ | ✓ |
-| Sort by column | ✓ | ✓ |
-| Pause | ✓ | ✓ |
-| Bar graph | ✓ | partial |
-| Net filter -F/-G | ✓ | CLI only (TODO accounting) |
-| Config file | ✓ | Deferred |
-
-## Not converting
-
-- Autoconf / `configure` / `Makefile.in`
-- Solaris DLPI
-- Token Ring / radiotap edge cases
-- `cscope.*` index files
+| Sort by column | ✓ | ✓ `--sort` / keys |
+| Bits/bytes | ✓ | ✓ `-B` / key `B` |
+| Bar graph | ✓ | ✓ default on; `-b` off; key `b` |
+| Pause | ✓ | ✓ key `Space` |
+| Ports + services | ✓ | ✓ `-P`; `-N` no service names |
+| Net filter -F/-G | ✓ | ✓ accounting |
+| Screen filter | ✓ | ✓ CLI + interactive `L` |
+| Config file | ✓ | ✓ TOML |
+| TOP views | partial | ✓ hosts/ports/proto |
+| TCP flags / retrans | — | ✓ |
+| Duration | — | ✓ column |
+| CAPTURED vs VISIBLE | confusing | ✓ explicit |
