@@ -1,7 +1,4 @@
-//! Riftop — modern iftop-style bandwidth monitor.
-//!
-//! Development order: capture → protocols → stats → PCAP tests → TUI.
-//! See docs/PROJECT_RULES.md and docs/architecture.md.
+//! Riftop — modern iftop-style bandwidth monitor (Rust rewrite of legacy C).
 
 mod capture;
 mod cli;
@@ -9,6 +6,7 @@ mod dns;
 mod error;
 mod flow;
 mod protocols;
+mod services;
 mod ui;
 
 use std::sync::Arc;
@@ -17,7 +15,9 @@ use anyhow::Context;
 use clap::Parser;
 use parking_lot::Mutex;
 
-use capture::{local_addresses, open_device, set_filter, spawn_capture_thread, SharedFlows};
+use capture::{
+    local_addresses, open_device, process_pcap_file, set_filter, spawn_capture_thread, SharedFlows,
+};
 use cli::Args;
 use dns::DnsCache;
 use flow::FlowTable;
@@ -25,6 +25,19 @@ use ui::{init_terminal, restore_terminal, run_ui, App};
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    if let Some(ref path) = args.pcap_file {
+        let table = process_pcap_file(path, &[]).context("offline PCAP")?;
+        println!("flows: {}", table.len());
+        let now = std::time::Instant::now();
+        for s in table.top(20, now) {
+            println!(
+                "{}  sent={} recv={} total={}",
+                s.key.a, s.sent_bytes, s.recv_bytes, s.total_bytes
+            );
+        }
+        return Ok(());
+    }
 
     let mut cap = open_device(args.interface.as_deref(), args.promiscuous)
         .context("failed to open capture device (try setcap or root)")?;
@@ -55,12 +68,15 @@ fn main() -> anyhow::Result<()> {
         iface_name,
         args.ports,
         !args.no_dns,
+        !args.no_port_resolution,
+        args.use_bytes,
+        !args.no_bars,
         args.lines,
+        args.sort,
     );
 
     let result = run_ui(&mut app, &mut terminal, args.interval_ms);
     restore_terminal(&mut terminal)?;
-
     result.context("UI error")?;
     Ok(())
 }
