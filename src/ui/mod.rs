@@ -16,11 +16,12 @@ use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 use ratatui::Terminal;
 
+use riftop::capture::SharedFlows;
+use riftop::dns::DnsCache;
+use riftop::filters::ScreenFilter;
+use riftop::flow::{format_bytes, format_rate, Aggregate, Snapshot};
+
 use crate::alerts::AlertEngine;
-use crate::capture::SharedFlows;
-use crate::dns::DnsCache;
-use crate::filters::ScreenFilter;
-use crate::flow::{format_bytes, format_rate, Aggregate};
 use crate::top::{format_top_row, top_hosts, top_ports, top_protocols, ViewMode};
 
 pub struct App {
@@ -160,7 +161,7 @@ fn draw(f: &mut Frame<'_>, app: &App) {
             Constraint::Min(10),
             Constraint::Length(2),
         ])
-        .split(f.area());
+        .split(f.size());
 
     draw_header(f, chunks[0], app);
     draw_table(f, chunks[1], app);
@@ -253,7 +254,7 @@ fn draw_flows(
     f: &mut Frame<'_>,
     area: Rect,
     app: &App,
-    snap: &crate::flow::Snapshot,
+    snap: &Snapshot,
     now: Instant,
 ) {
     let header_cells = ["#", "Host pair", "2s", "10s", "40s", "Total", "TCP"]
@@ -275,9 +276,9 @@ fn draw_flows(
             let a = app.dns.display(&stats.key.a, app.enable_dns);
             let b = app.dns.display(&stats.key.b, app.enable_dns);
             let pair = if app.show_ports {
-                format!("{a}:{} \u2194 {b}:{}", stats.key.port_a, stats.key.port_b)
+                format!("{a}:{} \u{2194} {b}:{}", stats.key.port_a, stats.key.port_b)
             } else {
-                format!("{a} \u2194 {b}")
+                format!("{a} \u{2194} {b}")
             };
             Row::new([
                 Cell::from((i + 1).to_string()),

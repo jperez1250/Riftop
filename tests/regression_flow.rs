@@ -44,6 +44,7 @@ fn r1_rate_windows_exist() {
         1500,
         &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
         now,
+        None,
     );
     let top = table.top(1, now);
     assert_eq!(top.len(), 1);

@@ -84,25 +84,25 @@ fn decode_linux_sll(frame: &[u8]) -> DecodeResult {
 }
 
 fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
-    use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
+    use etherparse::{NetSlice, SlicedPacket, TransportSlice};
 
     let sliced = match SlicedPacket::from_ip(payload) {
         Ok(s) => s,
         Err(_) => return DecodeResult::Ignored,
     };
 
-    let (src, dst, protocol, ip_len) = match sliced.ip {
-        Some(InternetSlice::Ipv4(h, _)) => (
-            IpAddr::V4(h.source_addr()),
-            IpAddr::V4(h.destination_addr()),
-            h.protocol(),
-            u64::from(h.total_len()),
+    let (src, dst, protocol, ip_len) = match sliced.net {
+        Some(NetSlice::Ipv4(h)) => (
+            IpAddr::V4(h.header().source_addr()),
+            IpAddr::V4(h.header().destination_addr()),
+            h.header().protocol().0,
+            u64::from(h.header().total_len()),
         ),
-        Some(InternetSlice::Ipv6(h, _)) => (
-            IpAddr::V6(h.source_addr()),
-            IpAddr::V6(h.destination_addr()),
-            h.next_header(),
-            u64::from(h.payload_length()) + 40,
+        Some(NetSlice::Ipv6(h)) => (
+            IpAddr::V6(h.header().source_addr()),
+            IpAddr::V6(h.header().destination_addr()),
+            h.header().next_header().0,
+            u64::from(h.header().payload_length()) + 40,
         ),
         None => return DecodeResult::Ignored,
     };

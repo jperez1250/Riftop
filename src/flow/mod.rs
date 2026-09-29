@@ -108,8 +108,8 @@ impl RateWindow {
         if relevant.is_empty() {
             return 0.0;
         }
-        let total: u64 = relevant.iter().map(|(_, b)| **b).sum();
-        let first = relevant.first().map_or(now, |(t, _)| **t);
+        let total: u64 = relevant.iter().map(|(_, b)| *b).sum();
+        let first = relevant.first().map_or(now, |(t, _)| *t);
         let elapsed = now.duration_since(first).as_secs_f64().max(0.001);
         total as f64 / elapsed
     }
