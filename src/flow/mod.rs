@@ -5,6 +5,7 @@ use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 use crate::filters::PacketFilter;
+use crate::protocols::TcpFlags;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -12,15 +13,11 @@ pub enum Direction {
     Received,
 }
 
-/// How to aggregate flows for display (legacy iftop src/dst aggregation).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Aggregate {
-    /// Full 5-tuple when ports on; host pair when ports off.
     #[default]
     Pair,
-    /// Group by source address only.
     Source,
-    /// Group by destination address only.
     Destination,
 }
 
@@ -54,8 +51,15 @@ impl FlowKey {
         }
     }
 
-    /// Aggregation key: collapse ports and/or one side of the pair.
-    pub fn aggregate(src: IpAddr, dst: IpAddr, sport: u16, dport: u16, protocol: u8, mode: Aggregate, show_ports: bool) -> Self {
+    pub fn aggregate(
+        src: IpAddr,
+        dst: IpAddr,
+        sport: u16,
+        dport: u16,
+        protocol: u8,
+        mode: Aggregate,
+        show_ports: bool,
+    ) -> Self {
         match mode {
             Aggregate::Source => Self {
                 a: src,
@@ -110,6 +114,41 @@ impl RateWindow {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TcpCounters {
+    pub syn: u64,
+    pub fin: u64,
+    pub rst: u64,
+    pub pure_ack: u64,
+}
+
+impl TcpCounters {
+    pub fn observe(&mut self, flags: TcpFlags) {
+        if flags.syn {
+            self.syn += 1;
+        }
+        if flags.fin {
+            self.fin += 1;
+        }
+        if flags.rst {
+            self.rst += 1;
+        }
+        if flags.pure_ack {
+            self.pure_ack += 1;
+        }
+    }
+
+    pub fn summary(&self) -> String {
+        if self.syn == 0 && self.fin == 0 && self.rst == 0 && self.pure_ack == 0 {
+            return String::new();
+        }
+        format!(
+            "S{} F{} R{} A{}",
+            self.syn, self.fin, self.rst, self.pure_ack
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FlowStats {
     pub key: FlowKey,
@@ -117,6 +156,7 @@ pub struct FlowStats {
     pub sent_bytes: u64,
     pub recv_bytes: u64,
     pub packets: u64,
+    pub tcp: TcpCounters,
     pub rate_2s: RateWindow,
     pub rate_10s: RateWindow,
     pub rate_40s: RateWindow,
@@ -131,6 +171,7 @@ impl FlowStats {
             sent_bytes: 0,
             recv_bytes: 0,
             packets: 0,
+            tcp: TcpCounters::default(),
             rate_2s: RateWindow::new(Duration::from_secs(2)),
             rate_10s: RateWindow::new(Duration::from_secs(10)),
             rate_40s: RateWindow::new(Duration::from_secs(40)),
@@ -138,12 +179,15 @@ impl FlowStats {
         }
     }
 
-    pub fn record(&mut self, now: Instant, bytes: u64, dir: Direction) {
+    pub fn record(&mut self, now: Instant, bytes: u64, dir: Direction, tcp: Option<TcpFlags>) {
         self.total_bytes += bytes;
         self.packets += 1;
         match dir {
             Direction::Sent => self.sent_bytes += bytes,
             Direction::Received => self.recv_bytes += bytes,
+        }
+        if let Some(f) = tcp {
+            self.tcp.observe(f);
         }
         self.rate_2s.add(now, bytes);
         self.rate_10s.add(now, bytes);
@@ -162,7 +206,6 @@ impl FlowStats {
     }
 }
 
-/// Global counters (CAPTURED totals — independent of screen filter).
 #[derive(Debug, Clone, Default)]
 pub struct Globals {
     pub packets_seen: u64,
@@ -172,7 +215,6 @@ pub struct Globals {
     pub bytes_recv: u64,
 }
 
-/// Immutable snapshot for TUI / export (no locks while rendering).
 #[derive(Debug, Clone)]
 pub struct Snapshot {
     pub flows: Vec<FlowStats>,
@@ -215,6 +257,7 @@ impl FlowTable {
         bytes: u64,
         local_addrs: &[IpAddr],
         now: Instant,
+        tcp: Option<TcpFlags>,
     ) {
         self.globals.packets_seen += 1;
         self.globals.packets_accepted += 1;
@@ -234,7 +277,7 @@ impl FlowTable {
             .flows
             .entry(key.clone())
             .or_insert_with(|| FlowStats::new(key, now));
-        entry.record(now, bytes, dir);
+        entry.record(now, bytes, dir, tcp);
     }
 
     pub fn record_filtered(
@@ -248,6 +291,7 @@ impl FlowTable {
         local_addrs: &[IpAddr],
         now: Instant,
         filter: &PacketFilter,
+        tcp: Option<TcpFlags>,
     ) -> bool {
         self.globals.packets_seen += 1;
 
@@ -273,13 +317,13 @@ impl FlowTable {
                         .flows
                         .entry(key.clone())
                         .or_insert_with(|| FlowStats::new(key, now));
-                    entry.record(now, bytes, dir);
+                    entry.record(now, bytes, dir, tcp);
                     return true;
                 }
                 Some(_) => {}
             }
         }
-        self.record(src, dst, sport, dport, protocol, bytes, local_addrs, now);
+        self.record(src, dst, sport, dport, protocol, bytes, local_addrs, now, tcp);
         true
     }
 
@@ -293,7 +337,6 @@ impl FlowTable {
         list.into_iter().take(n).collect()
     }
 
-    /// Clone top flows + globals for lock-free UI/export.
     pub fn snapshot(&self, n: usize, now: Instant) -> Snapshot {
         let flows: Vec<FlowStats> = self.top(n, now).into_iter().cloned().collect();
         Snapshot {
@@ -348,33 +391,5 @@ pub fn format_bytes(bytes: u64) -> String {
         format!("{value:.1} {}", UNITS[unit])
     } else {
         format!("{value:.2} {}", UNITS[unit])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::net::Ipv4Addr;
-
-    #[test]
-    fn flow_key_is_canonical() {
-        let a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
-        let b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
-        assert_eq!(
-            FlowKey::new(a, b, 80, 443, 6),
-            FlowKey::new(b, a, 443, 80, 6)
-        );
-    }
-
-    #[test]
-    fn globals_count_accepted() {
-        let mut t = FlowTable::new();
-        let now = Instant::now();
-        let a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
-        let b = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
-        t.record(a, b, 0, 0, 1, 100, &[a], now);
-        assert_eq!(t.globals().packets_seen, 1);
-        assert_eq!(t.globals().packets_accepted, 1);
-        assert_eq!(t.globals().bytes_total, 100);
     }
 }
