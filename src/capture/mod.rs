@@ -13,6 +13,7 @@ use parking_lot::Mutex;
 use pcap::{Active, Capture, Device};
 
 use crate::error::{Error, Result};
+use crate::filters::{bpf_expression, PacketFilter};
 use crate::flow::FlowTable;
 use crate::protocols::{decode_frame, DecodeResult};
 
@@ -39,22 +40,15 @@ pub fn open_device(name: Option<&str>, promiscuous: bool) -> Result<Capture<Acti
             .ok_or(Error::NoInterface)?
     };
 
-    let cap = Capture::from_device(device)?
+    Ok(Capture::from_device(device)?
         .promisc(promiscuous)
         .snaplen(65535)
         .timeout(250)
-        .open()?;
-
-    Ok(cap)
+        .open()?)
 }
 
 pub fn set_filter(cap: &mut Capture<Active>, filter: Option<&str>) -> Result<()> {
-    if let Some(f) = filter {
-        let expr = format!("({f}) and (ip or ip6)");
-        cap.filter(&expr, true)?;
-    } else {
-        cap.filter("ip or ip6", true)?;
-    }
+    cap.filter(&bpf_expression(filter), true)?;
     Ok(())
 }
 
@@ -71,6 +65,7 @@ pub fn spawn_capture_thread(
     mut cap: Capture<Active>,
     flows: SharedFlows,
     local_addrs: Vec<IpAddr>,
+    packet_filter: PacketFilter,
 ) -> thread::JoinHandle<()> {
     let linktype: i32 = 1;
     thread::spawn(move || loop {
@@ -78,8 +73,7 @@ pub fn spawn_capture_thread(
             Ok(packet) => {
                 let now = Instant::now();
                 if let DecodeResult::Ip(ep) = decode_frame(linktype, packet.data) {
-                    let mut table = flows.lock();
-                    table.record(
+                    flows.lock().record_filtered(
                         ep.src,
                         ep.dst,
                         ep.src_port,
@@ -88,6 +82,7 @@ pub fn spawn_capture_thread(
                         ep.ip_len,
                         &local_addrs,
                         now,
+                        &packet_filter,
                     );
                 }
             }
@@ -101,6 +96,14 @@ pub fn process_pcap_file(
     path: impl AsRef<std::path::Path>,
     local_addrs: &[IpAddr],
 ) -> Result<FlowTable> {
+    process_pcap_file_filtered(path, local_addrs, &PacketFilter::default())
+}
+
+pub fn process_pcap_file_filtered(
+    path: impl AsRef<std::path::Path>,
+    local_addrs: &[IpAddr],
+    packet_filter: &PacketFilter,
+) -> Result<FlowTable> {
     let mut cap = open_pcap_file(path)?;
     let mut table = FlowTable::new();
     let base = Instant::now();
@@ -113,7 +116,7 @@ pub fn process_pcap_file(
                 let when = base + Duration::from_secs(index);
                 index += 1;
                 if let DecodeResult::Ip(ep) = decode_frame(linktype, packet.data) {
-                    table.record(
+                    table.record_filtered(
                         ep.src,
                         ep.dst,
                         ep.src_port,
@@ -122,6 +125,7 @@ pub fn process_pcap_file(
                         ep.ip_len,
                         local_addrs,
                         when,
+                        packet_filter,
                     );
                 }
             }
