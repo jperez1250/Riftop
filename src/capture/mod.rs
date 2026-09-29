@@ -7,7 +7,7 @@ pub use pcap_file::open_pcap_file;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use pcap::{Active, Capture, Device};
@@ -51,7 +51,6 @@ pub fn open_device(name: Option<&str>, promiscuous: bool) -> Result<Capture<Acti
 /// Apply an optional BPF filter.
 pub fn set_filter(cap: &mut Capture<Active>, filter: Option<&str>) -> Result<()> {
     if let Some(f) = filter {
-        // Legacy always ANDs with "ip or ip6"
         let expr = format!("({f}) and (ip or ip6)");
         cap.filter(&expr, true)?;
     } else {
@@ -101,16 +100,24 @@ pub fn spawn_capture_thread(
 }
 
 /// Process an offline PCAP into a FlowTable (for regression tests).
+///
+/// Spaces packets 1 second apart on a synthetic timeline so rate windows (R1)
+/// remain meaningful without wall-clock waits.
 pub fn process_pcap_file(
     path: impl AsRef<std::path::Path>,
     local_addrs: &[IpAddr],
 ) -> Result<FlowTable> {
     let mut cap = open_pcap_file(path)?;
     let mut table = FlowTable::new();
-    let now = Instant::now();
+    let base = Instant::now();
+    let mut index: u64 = 0;
+
     loop {
         match cap.next_packet() {
             Ok(packet) => {
+                let when = base + Duration::from_secs(index);
+                index += 1;
+
                 if let DecodeResult::Ip(ep) = decode_ethernet(packet.data) {
                     table.record(
                         ep.src,
@@ -120,7 +127,7 @@ pub fn process_pcap_file(
                         ep.protocol,
                         ep.ip_len,
                         local_addrs,
-                        now,
+                        when,
                     );
                 }
             }
