@@ -1,8 +1,8 @@
 //! Packet decoding — no statistics, no I/O.
+//! Replaces legacy ether.h / ip.h / tcp.h / sll.h handlers.
 
 use std::net::IpAddr;
 
-/// Decoded endpoints for one IP packet (after L2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlowEndpoints {
     pub src: IpAddr,
@@ -10,50 +10,82 @@ pub struct FlowEndpoints {
     pub src_port: u16,
     pub dst_port: u16,
     pub protocol: u8,
-    /// IP-layer length used for accounting (legacy: ipv4 total length / ipv6 plen+40).
     pub ip_len: u64,
 }
 
-/// Result of attempting to decode a raw frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodeResult {
-    /// Successfully decoded an IP packet of interest.
     Ip(FlowEndpoints),
-    /// Frame ignored (non-IP, truncated, unsupported L2).
     Ignored,
 }
 
-/// Decode an Ethernet (or Ethernet-like) frame into flow endpoints.
-///
-/// Unsupported or non-IP frames return [`DecodeResult::Ignored`] — never panic.
+/// Decode a raw frame given pcap data-link type (1=Ethernet, 113=Linux SLL).
+pub fn decode_frame(linktype: i32, frame: &[u8]) -> DecodeResult {
+    match linktype {
+        1 | 12 => decode_ethernet(frame),
+        113 => decode_linux_sll(frame),
+        0 | 101 => {
+            if frame.len() > 4 {
+                decode_ip_payload(&frame[4..])
+            } else {
+                DecodeResult::Ignored
+            }
+        }
+        _ => decode_ethernet(frame),
+    }
+}
+
 pub fn decode_ethernet(frame: &[u8]) -> DecodeResult {
+    if frame.len() < 14 {
+        return DecodeResult::Ignored;
+    }
+    let mut ethertype = u16::from_be_bytes([frame[12], frame[13]]);
+    let mut offset = 14usize;
+    if ethertype == 0x8100 {
+        if frame.len() < 18 {
+            return DecodeResult::Ignored;
+        }
+        ethertype = u16::from_be_bytes([frame[16], frame[17]]);
+        offset = 18;
+    }
+    if ethertype != 0x0800 && ethertype != 0x86DD {
+        return DecodeResult::Ignored;
+    }
+    decode_ip_payload(&frame[offset..])
+}
+
+fn decode_linux_sll(frame: &[u8]) -> DecodeResult {
+    if frame.len() < 16 {
+        return DecodeResult::Ignored;
+    }
+    let protocol = u16::from_be_bytes([frame[14], frame[15]]);
+    if protocol != 0x0800 && protocol != 0x86DD {
+        return DecodeResult::Ignored;
+    }
+    decode_ip_payload(&frame[16..])
+}
+
+fn decode_ip_payload(payload: &[u8]) -> DecodeResult {
     use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 
-    let sliced = match SlicedPacket::from_ethernet(frame) {
+    let sliced = match SlicedPacket::from_ip(payload) {
         Ok(s) => s,
         Err(_) => return DecodeResult::Ignored,
     };
 
     let (src, dst, protocol, ip_len) = match sliced.ip {
-        Some(InternetSlice::Ipv4(h, _)) => {
-            let len = u64::from(h.total_len());
-            (
-                IpAddr::V4(h.source_addr()),
-                IpAddr::V4(h.destination_addr()),
-                h.protocol(),
-                len,
-            )
-        }
-        Some(InternetSlice::Ipv6(h, _)) => {
-            // Legacy: plen + 40
-            let len = u64::from(h.payload_length()) + 40;
-            (
-                IpAddr::V6(h.source_addr()),
-                IpAddr::V6(h.destination_addr()),
-                h.next_header(),
-                len,
-            )
-        }
+        Some(InternetSlice::Ipv4(h, _)) => (
+            IpAddr::V4(h.source_addr()),
+            IpAddr::V4(h.destination_addr()),
+            h.protocol(),
+            u64::from(h.total_len()),
+        ),
+        Some(InternetSlice::Ipv6(h, _)) => (
+            IpAddr::V6(h.source_addr()),
+            IpAddr::V6(h.destination_addr()),
+            h.next_header(),
+            u64::from(h.payload_length()) + 40,
+        ),
         None => return DecodeResult::Ignored,
     };
 
@@ -78,12 +110,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_frame_is_ignored() {
+    fn empty_is_ignored() {
         assert_eq!(decode_ethernet(&[]), DecodeResult::Ignored);
-    }
-
-    #[test]
-    fn truncated_frame_is_ignored() {
-        assert_eq!(decode_ethernet(&[0u8; 10]), DecodeResult::Ignored);
+        assert_eq!(decode_frame(1, &[]), DecodeResult::Ignored);
+        assert_eq!(decode_frame(113, &[0u8; 8]), DecodeResult::Ignored);
     }
 }
