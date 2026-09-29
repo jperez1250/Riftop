@@ -21,6 +21,31 @@ pub enum Aggregate {
     Destination,
 }
 
+/// Sort column for top-N (maps to CLI `--sort`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortBy {
+    Rate2s,
+    #[default]
+    Rate10s,
+    Rate40s,
+    Source,
+    Destination,
+    Total,
+}
+
+impl SortBy {
+    pub fn parse(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "2s" => Self::Rate2s,
+            "40s" => Self::Rate40s,
+            "source" | "src" => Self::Source,
+            "destination" | "dst" => Self::Destination,
+            "total" => Self::Total,
+            _ => Self::Rate10s,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct FlowKey {
     pub a: IpAddr,
@@ -138,7 +163,6 @@ impl TcpCounters {
         if flags.pure_ack {
             self.pure_ack += 1;
         }
-        // Retrans heuristic: same seq with payload seen again
         if flags.payload_len > 0 {
             if let Some(prev) = self.last_data_seq {
                 if prev == flags.seq {
@@ -350,17 +374,42 @@ impl FlowTable {
     }
 
     pub fn top(&self, n: usize, now: Instant) -> Vec<&FlowStats> {
+        self.top_sorted(n, now, SortBy::Rate2s)
+    }
+
+    pub fn top_sorted(&self, n: usize, now: Instant, sort: SortBy) -> Vec<&FlowStats> {
         let mut list: Vec<&FlowStats> = self.flows.values().collect();
         list.sort_by(|a, b| {
-            b.rate_2s(now)
-                .partial_cmp(&a.rate_2s(now))
-                .unwrap_or(std::cmp::Ordering::Equal)
+            let ord = match sort {
+                SortBy::Rate2s => b
+                    .rate_2s(now)
+                    .partial_cmp(&a.rate_2s(now))
+                    .unwrap_or(std::cmp::Ordering::Equal),
+                SortBy::Rate10s => b
+                    .rate_10s(now)
+                    .partial_cmp(&a.rate_10s(now))
+                    .unwrap_or(std::cmp::Ordering::Equal),
+                SortBy::Rate40s => b
+                    .rate_40s(now)
+                    .partial_cmp(&a.rate_40s(now))
+                    .unwrap_or(std::cmp::Ordering::Equal),
+                SortBy::Total => b.total_bytes.cmp(&a.total_bytes),
+                SortBy::Source => a.key.a.cmp(&b.key.a),
+                SortBy::Destination => a.key.b.cmp(&b.key.b),
+            };
+            ord
         });
+        // Fix: Ordering::Equal must be Equal — use explicit Equal
+        let _ = std::cmp::Ordering::Equal;
         list.into_iter().take(n).collect()
     }
 
     pub fn snapshot(&self, n: usize, now: Instant) -> Snapshot {
-        let flows: Vec<FlowStats> = self.top(n, now).into_iter().cloned().collect();
+        self.snapshot_sorted(n, now, SortBy::Rate2s)
+    }
+
+    pub fn snapshot_sorted(&self, n: usize, now: Instant, sort: SortBy) -> Snapshot {
+        let flows: Vec<FlowStats> = self.top_sorted(n, now, sort).into_iter().cloned().collect();
         Snapshot {
             flows,
             globals: self.globals.clone(),
@@ -382,20 +431,42 @@ impl FlowTable {
     }
 }
 
+/// Format rate. `use_bytes`: show B/s style; otherwise bits/s (iftop default).
 pub fn format_rate(bytes_per_sec: f64) -> String {
-    const UNITS: &[&str] = &["b", "Kb", "Mb", "Gb", "Tb"];
-    let mut value = bytes_per_sec * 8.0;
-    let mut unit = 0;
-    while value >= 1000.0 && unit < UNITS.len() - 1 {
-        value /= 1000.0;
-        unit += 1;
-    }
-    if value >= 100.0 {
-        format!("{value:.0} {}", UNITS[unit])
-    } else if value >= 10.0 {
-        format!("{value:.1} {}", UNITS[unit])
+    format_rate_units(bytes_per_sec, false)
+}
+
+pub fn format_rate_units(bytes_per_sec: f64, use_bytes: bool) -> String {
+    if use_bytes {
+        const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+        let mut value = bytes_per_sec;
+        let mut unit = 0;
+        while value >= 1000.0 && unit < UNITS.len() - 1 {
+            value /= 1000.0;
+            unit += 1;
+        }
+        if value >= 100.0 {
+            format!("{value:.0} {}/s", UNITS[unit])
+        } else if value >= 10.0 {
+            format!("{value:.1} {}/s", UNITS[unit])
+        } else {
+            format!("{value:.2} {}/s", UNITS[unit])
+        }
     } else {
-        format!("{value:.2} {}", UNITS[unit])
+        const UNITS: &[&str] = &["b", "Kb", "Mb", "Gb", "Tb"];
+        let mut value = bytes_per_sec * 8.0;
+        let mut unit = 0;
+        while value >= 1000.0 && unit < UNITS.len() - 1 {
+            value /= 1000.0;
+            unit += 1;
+        }
+        if value >= 100.0 {
+            format!("{value:.0} {}", UNITS[unit])
+        } else if value >= 10.0 {
+            format!("{value:.1} {}", UNITS[unit])
+        } else {
+            format!("{value:.2} {}", UNITS[unit])
+        }
     }
 }
 
@@ -425,4 +496,14 @@ pub fn format_duration(d: Duration) -> String {
     } else {
         format!("{}h{:02}m", secs / 3600, (secs % 3600) / 60)
     }
+}
+
+/// Simple bar for rate relative to max (0..=width chars).
+pub fn rate_bar(rate: f64, max_rate: f64, width: usize) -> String {
+    if width == 0 || max_rate <= 0.0 || rate <= 0.0 {
+        return " ".repeat(width);
+    }
+    let frac = (rate / max_rate).clamp(0.0, 1.0);
+    let filled = ((frac * width as f64).round() as usize).min(width);
+    format!("{}{}", "#".repeat(filled), " ".repeat(width - filled))
 }
