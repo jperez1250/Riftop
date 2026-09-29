@@ -12,6 +12,18 @@ pub enum Direction {
     Received,
 }
 
+/// How to aggregate flows for display (legacy iftop src/dst aggregation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Aggregate {
+    /// Full 5-tuple when ports on; host pair when ports off.
+    #[default]
+    Pair,
+    /// Group by source address only.
+    Source,
+    /// Group by destination address only.
+    Destination,
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct FlowKey {
     pub a: IpAddr,
@@ -39,6 +51,28 @@ impl FlowKey {
                 port_b: sport,
                 protocol,
             }
+        }
+    }
+
+    /// Aggregation key: collapse ports and/or one side of the pair.
+    pub fn aggregate(src: IpAddr, dst: IpAddr, sport: u16, dport: u16, protocol: u8, mode: Aggregate, show_ports: bool) -> Self {
+        match mode {
+            Aggregate::Source => Self {
+                a: src,
+                b: IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                port_a: if show_ports { sport } else { 0 },
+                port_b: 0,
+                protocol: if show_ports { protocol } else { 0 },
+            },
+            Aggregate::Destination => Self {
+                a: IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                b: dst,
+                port_a: 0,
+                port_b: if show_ports { dport } else { 0 },
+                protocol: if show_ports { protocol } else { 0 },
+            },
+            Aggregate::Pair if show_ports => Self::new(src, dst, sport, dport, protocol),
+            Aggregate::Pair => Self::new(src, dst, 0, 0, 0),
         }
     }
 }
@@ -82,6 +116,7 @@ pub struct FlowStats {
     pub total_bytes: u64,
     pub sent_bytes: u64,
     pub recv_bytes: u64,
+    pub packets: u64,
     pub rate_2s: RateWindow,
     pub rate_10s: RateWindow,
     pub rate_40s: RateWindow,
@@ -95,6 +130,7 @@ impl FlowStats {
             total_bytes: 0,
             sent_bytes: 0,
             recv_bytes: 0,
+            packets: 0,
             rate_2s: RateWindow::new(Duration::from_secs(2)),
             rate_10s: RateWindow::new(Duration::from_secs(10)),
             rate_40s: RateWindow::new(Duration::from_secs(40)),
@@ -104,6 +140,7 @@ impl FlowStats {
 
     pub fn record(&mut self, now: Instant, bytes: u64, dir: Direction) {
         self.total_bytes += bytes;
+        self.packets += 1;
         match dir {
             Direction::Sent => self.sent_bytes += bytes,
             Direction::Received => self.recv_bytes += bytes,
@@ -125,16 +162,47 @@ impl FlowStats {
     }
 }
 
+/// Global counters (CAPTURED totals — independent of screen filter).
+#[derive(Debug, Clone, Default)]
+pub struct Globals {
+    pub packets_seen: u64,
+    pub packets_accepted: u64,
+    pub bytes_total: u64,
+    pub bytes_sent: u64,
+    pub bytes_recv: u64,
+}
+
+/// Immutable snapshot for TUI / export (no locks while rendering).
+#[derive(Debug, Clone)]
+pub struct Snapshot {
+    pub flows: Vec<FlowStats>,
+    pub globals: Globals,
+    pub taken_at: Instant,
+}
+
 #[derive(Debug, Default)]
 pub struct FlowTable {
     flows: HashMap<FlowKey, FlowStats>,
+    globals: Globals,
+    aggregate: Aggregate,
+    show_ports: bool,
 }
 
 impl FlowTable {
     pub fn new() -> Self {
-        Self {
-            flows: HashMap::new(),
-        }
+        Self::default()
+    }
+
+    pub fn set_aggregate(&mut self, mode: Aggregate) {
+        self.aggregate = mode;
+    }
+
+    pub fn set_show_ports(&mut self, show: bool) {
+        self.show_ports = show;
+    }
+
+    pub fn globals(&self) -> Globals {
+        self.globals.clone()
     }
 
     pub fn record(
@@ -148,12 +216,20 @@ impl FlowTable {
         local_addrs: &[IpAddr],
         now: Instant,
     ) {
-        let key = FlowKey::new(src, dst, sport, dport, protocol);
+        self.globals.packets_seen += 1;
+        self.globals.packets_accepted += 1;
+        self.globals.bytes_total += bytes;
+
+        let key = FlowKey::aggregate(src, dst, sport, dport, protocol, self.aggregate, self.show_ports);
         let dir = if local_addrs.contains(&src) {
             Direction::Sent
         } else {
             Direction::Received
         };
+        match dir {
+            Direction::Sent => self.globals.bytes_sent += bytes,
+            Direction::Received => self.globals.bytes_recv += bytes,
+        }
         let entry = self
             .flows
             .entry(key.clone())
@@ -161,7 +237,6 @@ impl FlowTable {
         entry.record(now, bytes, dir);
     }
 
-    /// Apply packet filters then record. Returns false if dropped.
     pub fn record_filtered(
         &mut self,
         src: IpAddr,
@@ -174,16 +249,26 @@ impl FlowTable {
         now: Instant,
         filter: &PacketFilter,
     ) -> bool {
+        self.globals.packets_seen += 1;
+
         if filter.net4.is_some() || filter.net6.is_some() || !filter.allow_link_local {
             match filter.accept(src, dst) {
                 None => return false,
                 Some(sent) if filter.has_net_filter(src) => {
-                    let key = FlowKey::new(src, dst, sport, dport, protocol);
+                    self.globals.packets_accepted += 1;
+                    self.globals.bytes_total += bytes;
+                    let key = FlowKey::aggregate(
+                        src, dst, sport, dport, protocol, self.aggregate, self.show_ports,
+                    );
                     let dir = if sent {
                         Direction::Sent
                     } else {
                         Direction::Received
                     };
+                    match dir {
+                        Direction::Sent => self.globals.bytes_sent += bytes,
+                        Direction::Received => self.globals.bytes_recv += bytes,
+                    }
                     let entry = self
                         .flows
                         .entry(key.clone())
@@ -206,6 +291,16 @@ impl FlowTable {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         list.into_iter().take(n).collect()
+    }
+
+    /// Clone top flows + globals for lock-free UI/export.
+    pub fn snapshot(&self, n: usize, now: Instant) -> Snapshot {
+        let flows: Vec<FlowStats> = self.top(n, now).into_iter().cloned().collect();
+        Snapshot {
+            flows,
+            globals: self.globals.clone(),
+            taken_at: now,
+        }
     }
 
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
@@ -269,5 +364,17 @@ mod tests {
             FlowKey::new(a, b, 80, 443, 6),
             FlowKey::new(b, a, 443, 80, 6)
         );
+    }
+
+    #[test]
+    fn globals_count_accepted() {
+        let mut t = FlowTable::new();
+        let now = Instant::now();
+        let a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let b = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
+        t.record(a, b, 0, 0, 1, 100, &[a], now);
+        assert_eq!(t.globals().packets_seen, 1);
+        assert_eq!(t.globals().packets_accepted, 1);
+        assert_eq!(t.globals().bytes_total, 100);
     }
 }
