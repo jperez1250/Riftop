@@ -45,9 +45,9 @@ impl FlowKey {
 
     pub fn display_pair(&self, show_ports: bool) -> String {
         if show_ports {
-            format!("{}:{} \u2194 {}:{} ", self.a, self.port_a, self.b, self.port_b)
+            format!("{}:{} ↔ {}:{} ", self.a, self.port_a, self.b, self.port_b)
         } else {
-            format!("{} \u2194 {}", self.a, self.b)
+            format!("{} ↔ {}", self.a, self.b)
         }
     }
 }
