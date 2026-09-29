@@ -71,9 +71,17 @@ pub struct Args {
     #[arg(long, value_enum, default_value = "10s")]
     pub sort: SortColumn,
 
-    /// Offline PCAP file (no root required; for tests/regression)
+    /// Offline PCAP file (no root required; opens same TUI unless --output)
     #[arg(long = "pcap")]
     pub pcap_file: Option<String>,
+
+    /// Output format: tui (default), json, text
+    #[arg(long = "output", default_value = "tui")]
+    pub output: String,
+
+    /// Aggregation mode: pair, src, dst
+    #[arg(long = "aggregate", default_value = "pair")]
+    pub aggregate: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
