@@ -16,14 +16,14 @@
 - [x] JSON / text / CSV export (`--output`)
 - [x] CAPTURE vs DISPLAY explícito en header TUI
 - [x] Channel acotado capture → engine (`engine.rs`, backpressure + DROP counter)
-- [ ] Config TOML
+- [x] Config TOML (`config.rs`, `riftop.toml.example`)
 - [ ] Mejora interfaces (VLAN, netns)
 
 ## Fase 3 — Troubleshooting
 
 - [x] TOP hosts / ports / protocols (teclas 1–4 / Tab)
-- [ ] Métricas TCP básicas
-- [ ] Alertas por rate
+- [x] Métricas TCP básicas (SYN/FIN/RST/pure-ACK)
+- [x] Alertas por rate / PPS (`--alert-rate-bps`, `--alert-pps`)
 
 ## Fase 4 — Integración
 
@@ -37,4 +37,12 @@
 cargo build --release
 sudo setcap cap_net_raw,cap_net_admin=eip target/release/riftop
 ./target/release/riftop -i eth0
+```
+
+## Config
+
+```bash
+cp riftop.toml.example riftop.toml
+# edit and run — CLI flags override file
+riftop --config ./riftop.toml
 ```
