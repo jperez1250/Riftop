@@ -1,16 +1,20 @@
-//! Packet capture using libpcap + etherparse.
+//! Packet capture: live device and offline PCAP.
+
+mod pcap_file;
+
+pub use pcap_file::open_pcap_file;
 
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 
-use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 use parking_lot::Mutex;
 use pcap::{Active, Capture, Device};
 
 use crate::error::{Error, Result};
 use crate::flow::FlowTable;
+use crate::protocols::{decode_ethernet, DecodeResult};
 
 /// Shared state updated by the capture thread.
 pub type SharedFlows = Arc<Mutex<FlowTable>>;
@@ -47,7 +51,11 @@ pub fn open_device(name: Option<&str>, promiscuous: bool) -> Result<Capture<Acti
 /// Apply an optional BPF filter.
 pub fn set_filter(cap: &mut Capture<Active>, filter: Option<&str>) -> Result<()> {
     if let Some(f) = filter {
-        cap.filter(f, true)?;
+        // Legacy always ANDs with "ip or ip6"
+        let expr = format!("({f}) and (ip or ip6)");
+        cap.filter(&expr, true)?;
+    } else {
+        cap.filter("ip or ip6", true)?;
     }
     Ok(())
 }
@@ -72,15 +80,15 @@ pub fn spawn_capture_thread(
         match cap.next_packet() {
             Ok(packet) => {
                 let now = Instant::now();
-                if let Some((src, dst, sport, dport, proto, len)) = parse_packet(packet.data) {
+                if let DecodeResult::Ip(ep) = decode_ethernet(packet.data) {
                     let mut table = flows.lock();
                     table.record(
-                        src,
-                        dst,
-                        sport,
-                        dport,
-                        proto,
-                        len as u64,
+                        ep.src,
+                        ep.dst,
+                        ep.src_port,
+                        ep.dst_port,
+                        ep.protocol,
+                        ep.ip_len,
                         &local_addrs,
                         now,
                     );
@@ -92,29 +100,34 @@ pub fn spawn_capture_thread(
     })
 }
 
-/// Extract L3/L4 endpoints and frame length from a raw frame.
-fn parse_packet(data: &[u8]) -> Option<(IpAddr, IpAddr, u16, u16, u8, usize)> {
-    let sliced = SlicedPacket::from_ethernet(data).ok()?;
-
-    let (src, dst, proto) = match sliced.ip {
-        Some(InternetSlice::Ipv4(h, _)) => {
-            let src = IpAddr::V4(h.source_addr());
-            let dst = IpAddr::V4(h.destination_addr());
-            (src, dst, h.protocol())
+/// Process an offline PCAP into a FlowTable (for regression tests).
+pub fn process_pcap_file(
+    path: impl AsRef<std::path::Path>,
+    local_addrs: &[IpAddr],
+) -> Result<FlowTable> {
+    let mut cap = open_pcap_file(path)?;
+    let mut table = FlowTable::new();
+    let now = Instant::now();
+    loop {
+        match cap.next_packet() {
+            Ok(packet) => {
+                if let DecodeResult::Ip(ep) = decode_ethernet(packet.data) {
+                    table.record(
+                        ep.src,
+                        ep.dst,
+                        ep.src_port,
+                        ep.dst_port,
+                        ep.protocol,
+                        ep.ip_len,
+                        local_addrs,
+                        now,
+                    );
+                }
+            }
+            Err(pcap::Error::NoMorePackets) => break,
+            Err(pcap::Error::TimeoutExpired) => continue,
+            Err(e) => return Err(Error::Pcap(e)),
         }
-        Some(InternetSlice::Ipv6(h, _)) => {
-            let src = IpAddr::V6(h.source_addr());
-            let dst = IpAddr::V6(h.destination_addr());
-            (src, dst, h.next_header())
-        }
-        None => return None,
-    };
-
-    let (sport, dport) = match sliced.transport {
-        Some(TransportSlice::Tcp(t)) => (t.source_port(), t.destination_port()),
-        Some(TransportSlice::Udp(u)) => (u.source_port(), u.destination_port()),
-        _ => (0, 0),
-    };
-
-    Some((src, dst, sport, dport, proto, data.len()))
+    }
+    Ok(table)
 }
