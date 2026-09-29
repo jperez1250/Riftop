@@ -5,6 +5,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use crate::flow::{format_bytes, format_rate, FlowStats, Snapshot};
+use crate::services::service_name;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ViewMode {
@@ -59,7 +60,7 @@ fn accumulate_host(
 ) {
     for ip in [s.key.a, s.key.b] {
         let e = map.entry(ip).or_insert((0, 0.0, 0.0, 0.0));
-        e.0 += s.total_bytes / 2; // split pair roughly
+        e.0 += s.total_bytes / 2;
         e.1 += s.rate_2s(now) / 2.0;
         e.2 += s.rate_10s(now) / 2.0;
         e.3 += s.rate_40s(now) / 2.0;
@@ -80,13 +81,9 @@ pub fn top_ports(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
             e.3 += s.rate_40s(now) / 2.0;
         }
     }
-    rank(map, n, |p| {
-        let name = crate::services::port_name(p);
-        if name.is_empty() {
-            p.to_string()
-        } else {
-            format!("{p} ({name})")
-        }
+    rank(map, n, |p| match service_name(p, 0) {
+        Some(name) => format!("{p} ({name})"),
+        None => p.to_string(),
     })
 }
 
@@ -102,11 +99,7 @@ pub fn top_protocols(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
     rank(map, n, |p| proto_name(p).to_string())
 }
 
-fn rank<K, F>(
-    map: HashMap<K, (u64, f64, f64, f64)>,
-    n: usize,
-    label: F,
-) -> Vec<TopRow>
+fn rank<K, F>(map: HashMap<K, (u64, f64, f64, f64)>, n: usize, label: F) -> Vec<TopRow>
 where
     F: Fn(K) -> String,
 {
@@ -135,8 +128,7 @@ fn proto_name(p: u8) -> &'static str {
     }
 }
 
-pub fn format_top_row(row: &TopRow, now_rate: bool) -> (String, String, String, String, String) {
-    let _ = now_rate;
+pub fn format_top_row(row: &TopRow) -> (String, String, String, String, String) {
     (
         row.label.clone(),
         format_rate(row.rate_2s),
