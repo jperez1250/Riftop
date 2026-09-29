@@ -62,7 +62,6 @@ pub fn local_addresses(name: &str) -> Vec<IpAddr> {
         .unwrap_or_default()
 }
 
-/// Capture thread that pushes into the bounded engine channel (preferred).
 pub fn spawn_capture_to_engine(
     mut cap: Capture<Active>,
     engine: EngineHandle,
@@ -81,6 +80,7 @@ pub fn spawn_capture_to_engine(
                         protocol: ep.protocol,
                         bytes: ep.ip_len,
                         when: now,
+                        tcp: ep.tcp,
                     });
                 }
             }
@@ -90,7 +90,6 @@ pub fn spawn_capture_to_engine(
     })
 }
 
-/// Legacy direct-to-table path (used by tests / simple offline).
 pub fn spawn_capture_thread(
     mut cap: Capture<Active>,
     flows: SharedFlows,
@@ -113,6 +112,7 @@ pub fn spawn_capture_thread(
                         &local_addrs,
                         now,
                         &packet_filter,
+                        ep.tcp,
                     );
                 }
             }
@@ -156,6 +156,7 @@ pub fn process_pcap_file_filtered(
                         local_addrs,
                         when,
                         packet_filter,
+                        ep.tcp,
                     );
                 }
             }
