@@ -2,72 +2,65 @@
 
 Modern **iftop**-style real-time bandwidth monitor written in Rust.
 
-Shows the top host pairs by bandwidth on a network interface, with 2s / 10s / 40s rate windows, optional reverse DNS, and a clean terminal UI.
+Branch: `refactorc_testing` — rewrite in progress. See [docs/PROJECT_RULES.md](docs/PROJECT_RULES.md).
 
-## Features
+## Status
 
-- Live packet capture via **libpcap** (`pcap` crate)
-- Packet parsing with **etherparse** (no unsafe)
-- Flow accounting with sliding-window rates (2s / 10s / 40s)
-- Terminal UI with **ratatui** + **crossterm**
-- Optional reverse DNS (cached, non-blocking)
-- BPF filter support
-- Strict Clippy lints and idiomatic error handling (`thiserror` / `anyhow`)
+| Layer | Status |
+|-------|--------|
+| Legacy analysis | [docs/legacy-analysis.md](docs/legacy-analysis.md) |
+| Capture (live + offline PCAP) | In progress |
+| Protocol decode | Minimal Ethernet/IP/TCP/UDP |
+| Flow stats (2s/10s/40s) | MVP |
+| PCAP regression tests | Skeleton |
+| TUI (ratatui) | MVP (not the priority) |
 
-## Requirements
+## Development order
 
-- Rust 1.75+ (edition 2021)
-- libpcap development headers
-  - Debian/Ubuntu: `sudo apt install libpcap-dev`
-  - Fedora: `sudo dnf install libpcap-devel`
-  - macOS: included with Xcode CLT / brew
-- Root privileges (or `CAP_NET_RAW`) to open the capture device
+```
+legacy analysis → capture/parser → statistics → PCAP tests → TUI
+```
 
 ## Build
 
 ```bash
+# Dependencies: libpcap-dev, Rust stable
 cargo build --release
+
+# Optional: non-root capture
+sudo setcap cap_net_raw,cap_net_admin=eip target/release/riftop
+```
+
+## Test (no root)
+
+```bash
+./scripts/test-regression.sh
+# or
+cargo test --all-features
 ```
 
 ## Usage
 
 ```bash
-# Default interface, with DNS
-sudo ./target/release/riftop
-
-# Specific interface
 sudo ./target/release/riftop -i eth0
-
-# BPF filter (HTTPS only)
 sudo ./target/release/riftop -f "tcp port 443"
-
-# No DNS, show ports, 30 lines
-sudo ./target/release/riftop -n -P -l 30
 ```
 
-### Keybindings
-
-| Key | Action            |
-|-----|-------------------|
-| `q` / Esc | Quit         |
-| `n` | Toggle DNS        |
-| `p` | Toggle ports      |
-
-## Architecture
+## Project layout
 
 ```
 src/
-├── main.rs          # CLI + orchestration
-├── cli.rs           # clap arguments
-├── error.rs         # thiserror types
-├── capture/         # pcap + etherparse
-├── flow/            # FlowKey, RateWindow, FlowTable
-├── dns/             # reverse lookup cache
-└── ui/              # ratatui TUI
+  capture/     live + offline PCAP
+  protocols/   decode only
+  flow/        stats / rate windows
+  dns/         reverse DNS cache
+  ui/          ratatui (binary only)
+docs/          architecture, compatibility, legacy analysis
+fixtures/pcap/ deterministic captures
+tests/regression_*.rs
+scripts/
 ```
-
-Capture runs on a background thread and updates a shared `FlowTable` protected by `parking_lot::Mutex`. The UI thread reads snapshots and renders at the configured interval.
 
 ## License
 
-GPL-2.0-or-later (same spirit as the original iftop).
+GPL-2.0-or-later (same spirit as original iftop).

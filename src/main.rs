@@ -1,10 +1,14 @@
 //! Riftop — modern iftop-style bandwidth monitor.
+//!
+//! Development order: capture → protocols → stats → PCAP tests → TUI.
+//! See docs/PROJECT_RULES.md and docs/architecture.md.
 
 mod capture;
 mod cli;
 mod dns;
 mod error;
 mod flow;
+mod protocols;
 mod ui;
 
 use std::sync::Arc;
@@ -23,21 +27,18 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let mut cap = open_device(args.interface.as_deref(), args.promiscuous)
-        .context("failed to open capture device (try running as root)")?;
+        .context("failed to open capture device (try setcap or root)")?;
 
-    let iface_name = args
-        .interface
-        .clone()
-        .unwrap_or_else(|| {
-            pcap::Device::list()
-                .ok()
-                .and_then(|devs| {
-                    devs.into_iter()
-                        .find(|d| !d.name.starts_with("lo"))
-                        .map(|d| d.name)
-                })
-                .unwrap_or_else(|| "unknown".into())
-        });
+    let iface_name = args.interface.clone().unwrap_or_else(|| {
+        pcap::Device::list()
+            .ok()
+            .and_then(|devs| {
+                devs.into_iter()
+                    .find(|d| !d.name.starts_with("lo"))
+                    .map(|d| d.name)
+            })
+            .unwrap_or_else(|| "unknown".into())
+    });
 
     set_filter(&mut cap, args.filter.as_deref()).context("invalid BPF filter")?;
 
@@ -45,7 +46,6 @@ fn main() -> anyhow::Result<()> {
     let flows: SharedFlows = Arc::new(Mutex::new(FlowTable::new()));
     let dns = Arc::new(DnsCache::new());
 
-    // Start capture in background
     let _handle = spawn_capture_thread(cap, Arc::clone(&flows), local_addrs);
 
     let mut terminal = init_terminal().context("failed to initialize terminal")?;
