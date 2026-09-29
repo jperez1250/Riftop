@@ -101,8 +101,15 @@ fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
         ),
         Some(NetSlice::Ipv6(ref h)) => {
             let mut final_proto = h.header().next_header().0;
-            if let Some(next_proto) = h.extensions().first_header() {
-                final_proto = next_proto.0;
+            for ext in h.extensions().clone() {
+                use etherparse::Ipv6ExtensionSlice;
+                match ext {
+                    Ipv6ExtensionSlice::HopByHop(s) => final_proto = s.next_header().0,
+                    Ipv6ExtensionSlice::Routing(s) => final_proto = s.next_header().0,
+                    Ipv6ExtensionSlice::Fragment(s) => final_proto = s.next_header().0,
+                    Ipv6ExtensionSlice::DestinationOptions(s) => final_proto = s.next_header().0,
+                    Ipv6ExtensionSlice::Authentication(s) => final_proto = s.next_header().0,
+                }
             }
             (
                 IpAddr::V6(h.header().source_addr()),

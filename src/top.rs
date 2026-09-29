@@ -58,13 +58,17 @@ fn accumulate_host(
     s: &FlowStats,
     now: Instant,
 ) {
-    for ip in [s.key.a, s.key.b] {
-        let e = map.entry(ip).or_insert((0, 0.0, 0.0, 0.0));
-        e.0 += s.total_bytes / 2;
-        e.1 += s.rate_2s(now) / 2.0;
-        e.2 += s.rate_10s(now) / 2.0;
-        e.3 += s.rate_40s(now) / 2.0;
-    }
+    let e_a = map.entry(s.key.a).or_insert((0, 0.0, 0.0, 0.0));
+    e_a.0 += s.sent_bytes;
+    e_a.1 += s.rate_2s(now);
+    e_a.2 += s.rate_10s(now);
+    e_a.3 += s.rate_40s(now);
+
+    let e_b = map.entry(s.key.b).or_insert((0, 0.0, 0.0, 0.0));
+    e_b.0 += s.recv_bytes;
+    e_b.1 += s.rate_2s(now);
+    e_b.2 += s.rate_10s(now);
+    e_b.3 += s.rate_40s(now);
 }
 
 pub fn top_ports(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {

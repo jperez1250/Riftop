@@ -103,7 +103,7 @@ fn main() -> anyhow::Result<()> {
     .context("invalid net filter")?;
 
     if let Some(ref path) = args.pcap_file {
-        let mut table = process_pcap_file_filtered(
+        let table = process_pcap_file_filtered(
             path,
             &[],
             &packet_filter,

@@ -19,7 +19,7 @@ use ratatui::Terminal;
 use riftop::capture::SharedFlows;
 use riftop::dns::DnsCache;
 use riftop::filters::ScreenFilter;
-use riftop::flow::{format_bytes, format_rate, Aggregate, Snapshot};
+use riftop::flow::{format_bytes, Aggregate, Snapshot};
 
 use crate::alerts::AlertEngine;
 use crate::top::{format_top_row, top_hosts, top_ports, top_protocols, ViewMode};
