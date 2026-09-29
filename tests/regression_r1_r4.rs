@@ -1,11 +1,9 @@
 //! Regression R1 (rate windows) and R4 (direction from local address).
 //!
-//! Fixture data: `tests/fixtures_data.rs` (== fixtures/pcap/r1_r4_flows.pcap)
+//! Synthetic PCAP (same layout as scripts/gen_fixture_r1_r4.py):
 //! - 5 × 100-byte IPv4 TCP  10.0.0.1 → 10.0.0.2  (outgoing if local=10.0.0.1)
 //! - 3 × 200-byte IPv4 TCP  10.0.0.2 → 10.0.0.1  (incoming)
 //! - 1 non-IP frame (ignored)
-
-mod fixtures_data;
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
@@ -15,22 +13,87 @@ use riftop::capture::process_pcap_file;
 use riftop::flow::{FlowKey, FlowTable};
 use riftop::protocols::{decode_ethernet, DecodeResult};
 
-use fixtures_data::R1_R4_FLOWS_PCAP;
-
-fn materialize_fixture() -> PathBuf {
-    let dir = std::env::temp_dir().join("riftop_fixtures");
-    std::fs::create_dir_all(&dir).expect("temp fixtures dir");
-    let path = dir.join("r1_r4_flows.pcap");
-    std::fs::write(&path, R1_R4_FLOWS_PCAP).expect("write fixture");
-    path
-}
-
 fn local_host() -> IpAddr {
     IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))
 }
 
 fn remote_host() -> IpAddr {
     IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2))
+}
+
+/// Build a minimal Ethernet + IPv4 + TCP frame with the given IP total length.
+fn eth_ipv4_tcp(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, ip_total_len: u16) -> Vec<u8> {
+    let mut f = Vec::with_capacity(14 + ip_total_len as usize);
+    f.extend_from_slice(&[0x02, 0, 0, 0, 0, 0x02]);
+    f.extend_from_slice(&[0x02, 0, 0, 0, 0, 0x01]);
+    f.extend_from_slice(&[0x08, 0x00]);
+    f.push(0x45);
+    f.push(0);
+    f.extend_from_slice(&ip_total_len.to_be_bytes());
+    f.extend_from_slice(&0x1234u16.to_be_bytes());
+    f.extend_from_slice(&0x4000u16.to_be_bytes());
+    f.push(64);
+    f.push(6);
+    f.extend_from_slice(&0u16.to_be_bytes());
+    f.extend_from_slice(&src);
+    f.extend_from_slice(&dst);
+    f.extend_from_slice(&sport.to_be_bytes());
+    f.extend_from_slice(&dport.to_be_bytes());
+    f.extend_from_slice(&0u32.to_be_bytes());
+    f.extend_from_slice(&0u32.to_be_bytes());
+    f.push(5 << 4);
+    f.push(0x18);
+    f.extend_from_slice(&8192u16.to_be_bytes());
+    f.extend_from_slice(&0u16.to_be_bytes());
+    f.extend_from_slice(&0u16.to_be_bytes());
+    let payload = ip_total_len.saturating_sub(40) as usize;
+    f.extend(std::iter::repeat(0u8).take(payload));
+    f
+}
+
+fn pcap_record(ts_sec: u32, frame: &[u8]) -> Vec<u8> {
+    let mut r = Vec::with_capacity(16 + frame.len());
+    r.extend_from_slice(&ts_sec.to_le_bytes());
+    r.extend_from_slice(&0u32.to_le_bytes());
+    let n = frame.len() as u32;
+    r.extend_from_slice(&n.to_le_bytes());
+    r.extend_from_slice(&n.to_le_bytes());
+    r.extend_from_slice(frame);
+    r
+}
+
+/// Write deterministic fixture PCAP to a temp path.
+fn materialize_fixture() -> PathBuf {
+    let mut pcap = Vec::new();
+    pcap.extend_from_slice(&0xa1b2c3d4u32.to_le_bytes());
+    pcap.extend_from_slice(&2u16.to_le_bytes());
+    pcap.extend_from_slice(&4u16.to_le_bytes());
+    pcap.extend_from_slice(&0u32.to_le_bytes());
+    pcap.extend_from_slice(&0u32.to_le_bytes());
+    pcap.extend_from_slice(&65535u32.to_le_bytes());
+    pcap.extend_from_slice(&1u32.to_le_bytes());
+
+    let a = [10, 0, 0, 1];
+    let b = [10, 0, 0, 2];
+    for i in 0..5u32 {
+        let frame = eth_ipv4_tcp(a, b, 40000, 80, 100);
+        pcap.extend_from_slice(&pcap_record(1_700_000_000 + i, &frame));
+    }
+    for i in 0..3u32 {
+        let frame = eth_ipv4_tcp(b, a, 80, 40000, 200);
+        pcap.extend_from_slice(&pcap_record(1_700_000_010 + i, &frame));
+    }
+    let mut garbage = vec![0xffu8; 6];
+    garbage.extend_from_slice(&[0x02, 0, 0, 0, 0, 0x01]);
+    garbage.extend_from_slice(&[0x08, 0x06]);
+    garbage.extend(std::iter::repeat(0u8).take(28));
+    pcap.extend_from_slice(&pcap_record(1_700_000_020, &garbage));
+
+    let dir = std::env::temp_dir().join("riftop_fixtures");
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let path = dir.join("r1_r4_flows.pcap");
+    std::fs::write(&path, &pcap).expect("write pcap");
+    path
 }
 
 #[test]
