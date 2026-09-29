@@ -16,7 +16,8 @@ use ratatui::Terminal;
 
 use crate::capture::SharedFlows;
 use crate::dns::DnsCache;
-use crate::flow::{format_bytes, format_rate};
+use crate::filters::ScreenFilter;
+use crate::flow::{format_bytes, format_rate, Aggregate};
 
 pub struct App {
     pub flows: SharedFlows,
@@ -26,6 +27,10 @@ pub struct App {
     pub enable_dns: bool,
     pub max_lines: usize,
     pub should_quit: bool,
+    pub aggregate: Aggregate,
+    pub screen_filter: ScreenFilter,
+    pub capture_filter: Option<String>,
+    pub offline: bool,
 }
 
 impl App {
@@ -45,6 +50,10 @@ impl App {
             enable_dns,
             max_lines,
             should_quit: false,
+            aggregate: Aggregate::Pair,
+            screen_filter: ScreenFilter::default(),
+            capture_filter: None,
+            offline: false,
         }
     }
 }
@@ -75,17 +84,26 @@ pub fn run_ui(app: &mut App, terminal: &mut Term, interval_ms: u64) -> io::Resul
         if event::poll(tick)? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => {
-                        app.should_quit = true;
-                    }
+                    KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         app.should_quit = true;
                     }
-                    KeyCode::Char('n') => {
-                        app.enable_dns = !app.enable_dns;
-                    }
+                    KeyCode::Char('n') => app.enable_dns = !app.enable_dns,
                     KeyCode::Char('p') => {
                         app.show_ports = !app.show_ports;
+                        app.flows.lock().set_show_ports(app.show_ports);
+                    }
+                    KeyCode::Char('s') => {
+                        app.aggregate = Aggregate::Source;
+                        app.flows.lock().set_aggregate(Aggregate::Source);
+                    }
+                    KeyCode::Char('d') => {
+                        app.aggregate = Aggregate::Destination;
+                        app.flows.lock().set_aggregate(Aggregate::Destination);
+                    }
+                    KeyCode::Char('a') => {
+                        app.aggregate = Aggregate::Pair;
+                        app.flows.lock().set_aggregate(Aggregate::Pair);
                     }
                     _ => {}
                 }
@@ -96,7 +114,7 @@ pub fn run_ui(app: &mut App, terminal: &mut Term, interval_ms: u64) -> io::Resul
             break;
         }
 
-        {
+        if !app.offline {
             let mut table = app.flows.lock();
             table.expire(Instant::now(), std::time::Duration::from_secs(60));
         }
@@ -108,7 +126,7 @@ fn draw(f: &mut Frame<'_>, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(5),
             Constraint::Min(10),
             Constraint::Length(2),
         ])
@@ -120,26 +138,55 @@ fn draw(f: &mut Frame<'_>, app: &App) {
 }
 
 fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
-    let title = format!(
-        " Riftop — interface: {}  |  flows: {}  |  DNS: {}  |  ports: {} ",
+    let now = Instant::now();
+    let snap = app.flows.lock().snapshot(app.max_lines, now);
+    let g = &snap.globals;
+
+    let agg = match app.aggregate {
+        Aggregate::Pair => "pair",
+        Aggregate::Source => "src",
+        Aggregate::Destination => "dst",
+    };
+    let mode = if app.offline { "PCAP" } else { "LIVE" };
+    let bpf = app.capture_filter.as_deref().unwrap_or("(none)");
+
+    let line1 = format!(
+        " {mode}  iface: {}  |  agg: {agg}  |  DNS: {}  |  ports: {} ",
         app.interface,
-        app.flows.lock().len(),
         if app.enable_dns { "on" } else { "off" },
         if app.show_ports { "on" } else { "off" },
     );
-    let header = Paragraph::new(title)
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .block(Block::default().borders(Borders::ALL).title("Realtime bandwidth"));
+    let line2 = format!(
+        " CAPTURE FILTER: {bpf}",
+    );
+    let line3 = format!(
+        " CAPTURED: {} pkts / {}   VISIBLE: {} flows   TX {}  RX {} ",
+        g.packets_accepted,
+        format_bytes(g.bytes_total),
+        snap.flows.len().min(app.max_lines),
+        format_bytes(g.bytes_sent),
+        format_bytes(g.bytes_recv),
+    );
+
+    let text = vec![
+        Line::from(Span::styled(line1, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(line2, Style::default().fg(Color::Yellow))),
+        Line::from(Span::styled(line3, Style::default().fg(Color::Green))),
+    ];
+    let header = Paragraph::new(text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Riftop — realtime bandwidth"),
+    );
     f.render_widget(header, area);
 }
 
 fn draw_table(f: &mut Frame<'_>, area: Rect, app: &App) {
     let now = Instant::now();
-    let table = app.flows.lock();
-    let top = table.top(app.max_lines, now);
+    let snap = app.flows.lock().snapshot(app.max_lines * 2, now);
 
     if app.enable_dns {
-        for stats in &top {
+        for stats in &snap.flows {
             app.dns.resolve_async(stats.key.a);
             app.dns.resolve_async(stats.key.b);
         }
@@ -150,25 +197,35 @@ fn draw_table(f: &mut Frame<'_>, area: Rect, app: &App) {
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
     let header = Row::new(header_cells).height(1);
 
-    let rows = top.iter().enumerate().map(|(i, stats)| {
-        let a = app.dns.display(&stats.key.a, app.enable_dns);
-        let b = app.dns.display(&stats.key.b, app.enable_dns);
-        let pair = if app.show_ports {
-            format!("{a}:{} \u2194 {b}:{}", stats.key.port_a, stats.key.port_b)
-        } else {
-            format!("{a} \u2194 {b}")
-        };
+    let rows = snap
+        .flows
+        .iter()
+        .filter(|stats| {
+            let a = app.dns.display(&stats.key.a, app.enable_dns);
+            let b = app.dns.display(&stats.key.b, app.enable_dns);
+            app.screen_filter.matches(&a, &b)
+        })
+        .take(app.max_lines)
+        .enumerate()
+        .map(|(i, stats)| {
+            let a = app.dns.display(&stats.key.a, app.enable_dns);
+            let b = app.dns.display(&stats.key.b, app.enable_dns);
+            let pair = if app.show_ports {
+                format!("{a}:{} \u2194 {b}:{}", stats.key.port_a, stats.key.port_b)
+            } else {
+                format!("{a} \u2194 {b}")
+            };
 
-        let cells = [
-            Cell::from((i + 1).to_string()),
-            Cell::from(pair),
-            Cell::from(format_rate(stats.rate_2s(now))),
-            Cell::from(format_rate(stats.rate_10s(now))),
-            Cell::from(format_rate(stats.rate_40s(now))),
-            Cell::from(format_bytes(stats.total_bytes)),
-        ];
-        Row::new(cells)
-    });
+            let cells = [
+                Cell::from((i + 1).to_string()),
+                Cell::from(pair),
+                Cell::from(format_rate(stats.rate_2s(now))),
+                Cell::from(format_rate(stats.rate_10s(now))),
+                Cell::from(format_rate(stats.rate_40s(now))),
+                Cell::from(format_bytes(stats.total_bytes)),
+            ];
+            Row::new(cells)
+        });
 
     let widths = [
         Constraint::Length(4),
@@ -181,8 +238,7 @@ fn draw_table(f: &mut Frame<'_>, area: Rect, app: &App) {
 
     let t = Table::new(rows, widths)
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title("Top flows"))
-        .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+        .block(Block::default().borders(Borders::ALL).title("Top flows"));
 
     f.render_widget(t, area);
 }
@@ -190,11 +246,17 @@ fn draw_table(f: &mut Frame<'_>, area: Rect, app: &App) {
 fn draw_footer(f: &mut Frame<'_>, area: Rect) {
     let help = Line::from(vec![
         Span::styled(" q ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Span::raw(" quit  "),
+        Span::raw("quit  "),
         Span::styled(" n ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Span::raw(" toggle DNS  "),
+        Span::raw("DNS  "),
         Span::styled(" p ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Span::raw(" toggle ports"),
+        Span::raw("ports  "),
+        Span::styled(" a ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::raw("pair  "),
+        Span::styled(" s ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::raw("src  "),
+        Span::styled(" d ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::raw("dst"),
     ]);
     let footer = Paragraph::new(help).block(Block::default().borders(Borders::TOP));
     f.render_widget(footer, area);
