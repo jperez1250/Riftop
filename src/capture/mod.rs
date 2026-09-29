@@ -126,21 +126,33 @@ pub fn spawn_capture_thread(
     })
 }
 
+use crate::flow::Aggregate;
+
 pub fn process_pcap_file(
     path: impl AsRef<std::path::Path>,
     local_addrs: &[IpAddr],
 ) -> Result<FlowTable> {
-    process_pcap_file_filtered(path, local_addrs, &PacketFilter::default())
+    process_pcap_file_filtered(path, local_addrs, &PacketFilter::default(), Aggregate::Pair, false, None)
 }
 
 pub fn process_pcap_file_filtered(
     path: impl AsRef<std::path::Path>,
     local_addrs: &[IpAddr],
     packet_filter: &PacketFilter,
+    aggregate: Aggregate,
+    show_ports: bool,
+    bpf_filter: Option<&str>,
 ) -> Result<FlowTable> {
     let mut cap = open_pcap_file(path)?;
+    if let Some(f) = bpf_filter {
+        if !f.trim().is_empty() {
+            let _ = cap.filter(&bpf_expression(Some(f)), true);
+        }
+    }
     let linktype = datalink_i32(&cap);
     let mut table = FlowTable::new();
+    table.set_aggregate(aggregate);
+    table.set_show_ports(show_ports);
     let base_instant = Instant::now();
     let mut first_ts: Option<Duration> = None;
 

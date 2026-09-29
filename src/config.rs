@@ -196,6 +196,7 @@ fn parse_file(path: &Path) -> Result<Config> {
                 }
             }
             "aggregate" => cfg.aggregate = Some(val.to_string()),
+            "sort" => cfg.sort = Some(val.to_string()),
             "output" => cfg.output = Some(val.to_string()),
             "alert_rate_bps" | "alert-rate-bps" => {
                 if let Ok(n) = val.parse() {

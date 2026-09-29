@@ -21,7 +21,7 @@ use config::Config;
 use interfaces::{current_netns_id, format_iface_table, list_interfaces, pick_default_interface};
 use privileges::warn_if_root;
 use riftop::capture::{
-    local_addresses, open_device, process_pcap_file, set_filter, spawn_capture_to_engine, SharedFlows,
+    local_addresses, open_device, process_pcap_file_filtered, set_filter, spawn_capture_to_engine, SharedFlows,
 };
 use riftop::dns::DnsCache;
 use riftop::engine::spawn_engine;
@@ -95,10 +95,23 @@ fn main() -> anyhow::Result<()> {
 
     let sort_mode = SortBy::parse(cfg.sort.as_deref().unwrap_or("10s"));
 
+    let packet_filter = PacketFilter::from_options(
+        cfg.net_filter.as_deref(),
+        cfg.net_filter6.as_deref(),
+        cfg.link_local,
+    )
+    .context("invalid net filter")?;
+
     if let Some(ref path) = args.pcap_file {
-        let mut table = process_pcap_file(path, &[]).context("offline PCAP")?;
-        table.set_aggregate(aggregate);
-        table.set_show_ports(ports);
+        let mut table = process_pcap_file_filtered(
+            path,
+            &[],
+            &packet_filter,
+            aggregate,
+            ports,
+            cfg.filter.as_deref(),
+        )
+        .context("offline PCAP")?;
         let now = table
             .top(1, std::time::Instant::now())
             .first()
@@ -107,15 +120,15 @@ fn main() -> anyhow::Result<()> {
 
         match output {
             OutputFormat::Json => {
-                write_json(&mut std::io::stdout(), &table, now, lines, path)?;
+                write_json(&mut std::io::stdout(), &table, now, lines, path, sort_mode)?;
                 return Ok(());
             }
             OutputFormat::Text => {
-                write_text(&mut std::io::stdout(), &table, now, lines)?;
+                write_text(&mut std::io::stdout(), &table, now, lines, sort_mode, cfg.use_bytes)?;
                 return Ok(());
             }
             OutputFormat::Csv => {
-                write_csv(&mut std::io::stdout(), &table, now, lines)?;
+                write_csv(&mut std::io::stdout(), &table, now, lines, sort_mode, cfg.use_bytes)?;
                 return Ok(());
             }
             OutputFormat::Tui => {
@@ -176,10 +189,10 @@ fn main() -> anyhow::Result<()> {
         table.expire(now, std::time::Duration::from_secs(60));
         match output {
             OutputFormat::Json => {
-                write_json(&mut std::io::stdout(), &table, now, lines, &iface_name)?
+                write_json(&mut std::io::stdout(), &table, now, lines, &iface_name, sort_mode)?;
             }
-            OutputFormat::Text => write_text(&mut std::io::stdout(), &table, now, lines)?,
-            OutputFormat::Csv => write_csv(&mut std::io::stdout(), &table, now, lines)?,
+            OutputFormat::Text => write_text(&mut std::io::stdout(), &table, now, lines, sort_mode, cfg.use_bytes)?,
+            OutputFormat::Csv => write_csv(&mut std::io::stdout(), &table, now, lines, sort_mode, cfg.use_bytes)?,
             OutputFormat::Tui => {}
         }
         return Ok(());

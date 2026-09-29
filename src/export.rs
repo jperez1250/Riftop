@@ -3,7 +3,7 @@
 use std::io::{self, Write};
 use std::time::Instant;
 
-use crate::flow::{format_bytes, format_rate, FlowTable};
+use crate::flow::{format_bytes, format_rate_units, FlowTable, SortBy};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -48,9 +48,10 @@ pub fn write_json(
     now: Instant,
     limit: usize,
     interface: &str,
+    sort_mode: SortBy,
 ) -> io::Result<()> {
     let g = table.globals();
-    let top = table.top(limit, now);
+    let top = table.top_sorted(limit, now, sort_mode);
     let iface = json_escape(interface);
     write!(out, "{{\"interface\":\"{iface}\",")?;
     write!(out, "\"packets_seen\":{},", g.packets_seen)?;
@@ -89,6 +90,8 @@ pub fn write_text(
     table: &FlowTable,
     now: Instant,
     limit: usize,
+    sort_mode: SortBy,
+    use_bytes: bool,
 ) -> io::Result<()> {
     let g = table.globals();
     writeln!(
@@ -100,15 +103,15 @@ pub fn write_text(
         table.len()
     )?;
     writeln!(out, "# SRC\tDST\t2s\t10s\t40s\tTOTAL")?;
-    for s in table.top(limit, now) {
+    for s in table.top_sorted(limit, now, sort_mode) {
         writeln!(
             out,
             "{}\t{}\t{}\t{}\t{}\t{}",
             s.key.a,
             s.key.b,
-            format_rate(s.rate_2s(now)),
-            format_rate(s.rate_10s(now)),
-            format_rate(s.rate_40s(now)),
+            format_rate_units(s.rate_2s(now), use_bytes),
+            format_rate_units(s.rate_10s(now), use_bytes),
+            format_rate_units(s.rate_40s(now), use_bytes),
             format_bytes(s.total_bytes)
         )?;
     }
@@ -120,9 +123,13 @@ pub fn write_csv(
     table: &FlowTable,
     now: Instant,
     limit: usize,
+    sort_mode: SortBy,
+    use_bytes: bool,
 ) -> io::Result<()> {
-    writeln!(out, "src,dst,sport,dport,proto,sent,recv,total,rate_2s,rate_10s,rate_40s")?;
-    for s in table.top(limit, now) {
+    let rate_unit_str = if use_bytes { "bytes_sec" } else { "bits_sec" };
+    writeln!(out, "src,dst,sport,dport,proto,sent,recv,total,rate_2s_{rate_unit_str},rate_10s_{rate_unit_str},rate_40s_{rate_unit_str}")?;
+    for s in table.top_sorted(limit, now, sort_mode) {
+        let mult = if use_bytes { 1.0 } else { 8.0 };
         writeln!(
             out,
             "{},{},{},{},{},{},{},{},{:.3},{:.3},{:.3}",
@@ -134,9 +141,9 @@ pub fn write_csv(
             s.sent_bytes,
             s.recv_bytes,
             s.total_bytes,
-            s.rate_2s(now),
-            s.rate_10s(now),
-            s.rate_40s(now)
+            s.rate_2s(now) * mult,
+            s.rate_10s(now) * mult,
+            s.rate_40s(now) * mult
         )?;
     }
     Ok(())

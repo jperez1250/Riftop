@@ -82,6 +82,13 @@ impl App {
 type Term = Terminal<CrosstermBackend<Stdout>>;
 
 pub fn init_terminal() -> io::Result<Term> {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
+        default_hook(panic_info);
+    }));
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -180,7 +187,7 @@ fn draw(f: &mut Frame<'_>, app: &App) {
 
 fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
     let now = Instant::now();
-    let snap = app.flows.lock().snapshot(app.max_lines, now);
+    let snap = app.flows.lock().snapshot_sorted(app.max_lines, now, app.sort);
     let g = &snap.globals;
     let drop_n = app
         .dropped

@@ -34,9 +34,10 @@ pub enum DecodeResult {
 
 pub fn decode_frame(linktype: i32, frame: &[u8]) -> DecodeResult {
     match linktype {
-        1 | 12 => decode_ethernet(frame),
+        1 => decode_ethernet(frame),
+        12 | 101 => decode_ip_payload(frame, None),
         113 => decode_linux_sll(frame),
-        0 | 101 => {
+        0 => {
             if frame.len() > 4 {
                 decode_ip_payload(&frame[4..], None)
             } else {
@@ -98,12 +99,18 @@ fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
             h.header().protocol().0,
             u64::from(h.header().total_len()),
         ),
-        Some(NetSlice::Ipv6(h)) => (
-            IpAddr::V6(h.header().source_addr()),
-            IpAddr::V6(h.header().destination_addr()),
-            h.header().next_header().0,
-            u64::from(h.header().payload_length()) + 40,
-        ),
+        Some(NetSlice::Ipv6(ref h)) => {
+            let mut final_proto = h.header().next_header().0;
+            if let Some(next_proto) = h.extensions().first_header() {
+                final_proto = next_proto.0;
+            }
+            (
+                IpAddr::V6(h.header().source_addr()),
+                IpAddr::V6(h.header().destination_addr()),
+                final_proto,
+                u64::from(h.header().payload_length()) + 40,
+            )
+        }
         None => return DecodeResult::Ignored,
     };
 
