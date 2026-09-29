@@ -10,6 +10,7 @@ mod error;
 mod export;
 mod filters;
 mod flow;
+mod interfaces;
 mod privileges;
 mod protocols;
 mod services;
@@ -34,6 +35,7 @@ use engine::spawn_engine;
 use export::{write_csv, write_json, write_text, OutputFormat};
 use filters::{PacketFilter, ScreenFilter};
 use flow::{Aggregate, FlowTable};
+use interfaces::{current_netns_id, format_iface_table, list_interfaces, pick_default_interface};
 use privileges::warn_if_root;
 use ui::{init_terminal, restore_terminal, run_ui, App};
 
@@ -49,8 +51,15 @@ fn main() -> anyhow::Result<()> {
     let _ = warn_if_root(&mut std::io::stderr());
 
     let args = Args::parse();
-    let mut cfg = Config::load(args.config.as_deref().map(Path::new))
-        .context("config")?;
+
+    if args.list_interfaces {
+        let ifaces = list_interfaces(true).context("list interfaces")?;
+        let ns = current_netns_id();
+        print!("{}", format_iface_table(&ifaces, ns.as_deref()));
+        return Ok(());
+    }
+
+    let mut cfg = Config::load(args.config.as_deref().map(Path::new)).context("config")?;
     cfg.apply_cli(
         &args.interface,
         &args.filter,
@@ -118,20 +127,14 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let iface = cfg.interface.clone();
-    let mut cap = open_device(iface.as_deref(), cfg.promiscuous)
-        .context("failed to open capture device (try setcap or root)")?;
+    let iface_name = cfg
+        .interface
+        .clone()
+        .or_else(|| pick_default_interface().ok())
+        .unwrap_or_else(|| "unknown".into());
 
-    let iface_name = iface.unwrap_or_else(|| {
-        pcap::Device::list()
-            .ok()
-            .and_then(|devs| {
-                devs.into_iter()
-                    .find(|d| !d.name.starts_with("lo"))
-                    .map(|d| d.name)
-            })
-            .unwrap_or_else(|| "unknown".into())
-    });
+    let mut cap = open_device(Some(&iface_name), cfg.promiscuous)
+        .context("failed to open capture device (try setcap or root)")?;
 
     set_filter(&mut cap, cfg.filter.as_deref()).context("invalid BPF filter")?;
 
