@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 use pcap::{Active, Capture, Device};
 
+use crate::engine::{EngineHandle, PacketEvent};
 use crate::error::{Error, Result};
 use crate::filters::{bpf_expression, PacketFilter};
 use crate::flow::FlowTable;
@@ -61,6 +62,35 @@ pub fn local_addresses(name: &str) -> Vec<IpAddr> {
         .unwrap_or_default()
 }
 
+/// Capture thread that pushes into the bounded engine channel (preferred).
+pub fn spawn_capture_to_engine(
+    mut cap: Capture<Active>,
+    engine: EngineHandle,
+) -> thread::JoinHandle<()> {
+    let linktype: i32 = 1;
+    thread::spawn(move || loop {
+        match cap.next_packet() {
+            Ok(packet) => {
+                let now = Instant::now();
+                if let DecodeResult::Ip(ep) = decode_frame(linktype, packet.data) {
+                    engine.try_send(PacketEvent {
+                        src: ep.src,
+                        dst: ep.dst,
+                        sport: ep.src_port,
+                        dport: ep.dst_port,
+                        protocol: ep.protocol,
+                        bytes: ep.ip_len,
+                        when: now,
+                    });
+                }
+            }
+            Err(pcap::Error::TimeoutExpired) => continue,
+            Err(_) => break,
+        }
+    })
+}
+
+/// Legacy direct-to-table path (used by tests / simple offline).
 pub fn spawn_capture_thread(
     mut cap: Capture<Active>,
     flows: SharedFlows,
