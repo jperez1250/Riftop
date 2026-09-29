@@ -120,6 +120,8 @@ pub struct TcpCounters {
     pub fin: u64,
     pub rst: u64,
     pub pure_ack: u64,
+    pub retrans: u64,
+    last_data_seq: Option<u32>,
 }
 
 impl TcpCounters {
@@ -136,15 +138,29 @@ impl TcpCounters {
         if flags.pure_ack {
             self.pure_ack += 1;
         }
+        // Retrans heuristic: same seq with payload seen again
+        if flags.payload_len > 0 {
+            if let Some(prev) = self.last_data_seq {
+                if prev == flags.seq {
+                    self.retrans += 1;
+                }
+            }
+            self.last_data_seq = Some(flags.seq);
+        }
     }
 
     pub fn summary(&self) -> String {
-        if self.syn == 0 && self.fin == 0 && self.rst == 0 && self.pure_ack == 0 {
+        if self.syn == 0
+            && self.fin == 0
+            && self.rst == 0
+            && self.pure_ack == 0
+            && self.retrans == 0
+        {
             return String::new();
         }
         format!(
-            "S{} F{} R{} A{}",
-            self.syn, self.fin, self.rst, self.pure_ack
+            "S{} F{} R{} A{} X{}",
+            self.syn, self.fin, self.rst, self.pure_ack, self.retrans
         )
     }
 }
@@ -160,6 +176,7 @@ pub struct FlowStats {
     pub rate_2s: RateWindow,
     pub rate_10s: RateWindow,
     pub rate_40s: RateWindow,
+    pub first_seen: Instant,
     pub last_seen: Instant,
 }
 
@@ -175,6 +192,7 @@ impl FlowStats {
             rate_2s: RateWindow::new(Duration::from_secs(2)),
             rate_10s: RateWindow::new(Duration::from_secs(10)),
             rate_40s: RateWindow::new(Duration::from_secs(40)),
+            first_seen: now,
             last_seen: now,
         }
     }
@@ -193,6 +211,10 @@ impl FlowStats {
         self.rate_10s.add(now, bytes);
         self.rate_40s.add(now, bytes);
         self.last_seen = now;
+    }
+
+    pub fn duration(&self) -> Duration {
+        self.last_seen.saturating_duration_since(self.first_seen)
     }
 
     pub fn rate_2s(&self, now: Instant) -> f64 {
@@ -391,5 +413,16 @@ pub fn format_bytes(bytes: u64) -> String {
         format!("{value:.1} {}", UNITS[unit])
     } else {
         format!("{value:.2} {}", UNITS[unit])
+    }
+}
+
+pub fn format_duration(d: Duration) -> String {
+    let secs = d.as_secs();
+    if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m{:02}s", secs / 60, secs % 60)
+    } else {
+        format!("{}h{:02}m", secs / 3600, (secs % 3600) / 60)
     }
 }
