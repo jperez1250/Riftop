@@ -16,6 +16,7 @@ use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 use ratatui::Terminal;
 
+use crate::alerts::AlertEngine;
 use crate::capture::SharedFlows;
 use crate::dns::DnsCache;
 use crate::filters::ScreenFilter;
@@ -36,6 +37,7 @@ pub struct App {
     pub offline: bool,
     pub view: ViewMode,
     pub dropped: Option<Arc<AtomicU64>>,
+    pub alerts: Option<AlertEngine>,
 }
 
 impl App {
@@ -61,6 +63,7 @@ impl App {
             offline: false,
             view: ViewMode::Flows,
             dropped: None,
+            alerts: None,
         }
     }
 }
@@ -85,6 +88,14 @@ pub fn run_ui(app: &mut App, terminal: &mut Term, interval_ms: u64) -> io::Resul
     let tick = std::time::Duration::from_millis(interval_ms);
 
     loop {
+        {
+            let now = Instant::now();
+            let snap = app.flows.lock().snapshot(app.max_lines, now);
+            if let Some(ae) = app.alerts.as_mut() {
+                ae.evaluate(&snap, now);
+            }
+        }
+
         terminal.draw(|f| draw(f, app))?;
 
         if event::poll(tick)? {
@@ -135,10 +146,17 @@ pub fn run_ui(app: &mut App, terminal: &mut Term, interval_ms: u64) -> io::Resul
 }
 
 fn draw(f: &mut Frame<'_>, app: &App) {
+    let has_alerts = app
+        .alerts
+        .as_ref()
+        .map(|a| a.recent().next().is_some())
+        .unwrap_or(false);
+    let header_h = if has_alerts { 6 } else { 5 };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),
+            Constraint::Length(header_h),
             Constraint::Min(10),
             Constraint::Length(2),
         ])
@@ -184,7 +202,7 @@ fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
         drop_n,
     );
 
-    let text = vec![
+    let mut text = vec![
         Line::from(Span::styled(
             line1,
             Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
@@ -192,6 +210,16 @@ fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
         Line::from(Span::styled(line2, Style::default().fg(Color::Yellow))),
         Line::from(Span::styled(line3, Style::default().fg(Color::Green))),
     ];
+
+    if let Some(ae) = &app.alerts {
+        if let Some(msg) = ae.latest_messages(1).into_iter().next() {
+            text.push(Line::from(Span::styled(
+                format!(" ALERT: {msg} "),
+                Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD),
+            )));
+        }
+    }
+
     let header = Paragraph::new(text).block(
         Block::default()
             .borders(Borders::ALL)
@@ -228,7 +256,7 @@ fn draw_flows(
     snap: &crate::flow::Snapshot,
     now: Instant,
 ) {
-    let header_cells = ["#", "Host pair", "2s", "10s", "40s", "Total"]
+    let header_cells = ["#", "Host pair", "2s", "10s", "40s", "Total", "TCP"]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
     let header = Row::new(header_cells).height(1);
@@ -258,16 +286,18 @@ fn draw_flows(
                 Cell::from(format_rate(stats.rate_10s(now))),
                 Cell::from(format_rate(stats.rate_40s(now))),
                 Cell::from(format_bytes(stats.total_bytes)),
+                Cell::from(stats.tcp.summary()),
             ])
         });
 
     let widths = [
         Constraint::Length(4),
-        Constraint::Percentage(45),
-        Constraint::Length(10),
-        Constraint::Length(10),
-        Constraint::Length(10),
-        Constraint::Length(10),
+        Constraint::Percentage(40),
+        Constraint::Length(9),
+        Constraint::Length(9),
+        Constraint::Length(9),
+        Constraint::Length(9),
+        Constraint::Length(14),
     ];
     let t = Table::new(rows, widths)
         .header(header)
@@ -311,16 +341,12 @@ fn draw_footer(f: &mut Frame<'_>, area: Rect) {
     let help = Line::from(vec![
         Span::styled(" q ", Style::default().fg(Color::Black).bg(Color::Cyan)),
         Span::raw("quit  "),
-        Span::styled(" 1 ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Span::raw("flows  "),
-        Span::styled(" 2 ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Span::raw("hosts  "),
-        Span::styled(" 3 ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Span::raw("ports  "),
-        Span::styled(" 4 ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Span::raw("proto  "),
+        Span::styled(" 1-4 ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::raw("views  "),
         Span::styled(" Tab ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-        Span::raw("cycle"),
+        Span::raw("cycle  "),
+        Span::styled(" p ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::raw("ports"),
     ]);
     let footer = Paragraph::new(help).block(Block::default().borders(Borders::TOP));
     f.render_widget(footer, area);
