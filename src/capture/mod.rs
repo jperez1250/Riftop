@@ -20,6 +20,10 @@ use crate::protocols::{decode_frame, DecodeResult};
 
 pub type SharedFlows = Arc<Mutex<FlowTable>>;
 
+fn datalink_i32(cap: &Capture<impl pcap::Activated>) -> i32 {
+    cap.get_datalink().0
+}
+
 pub fn open_device(name: Option<&str>, promiscuous: bool) -> Result<Capture<Active>> {
     let device = if let Some(n) = name {
         Device::list()?
@@ -66,7 +70,7 @@ pub fn spawn_capture_to_engine(
     mut cap: Capture<Active>,
     engine: EngineHandle,
 ) -> thread::JoinHandle<()> {
-    let linktype: i32 = 1;
+    let linktype = datalink_i32(&cap);
     thread::spawn(move || loop {
         match cap.next_packet() {
             Ok(packet) => {
@@ -96,7 +100,7 @@ pub fn spawn_capture_thread(
     local_addrs: Vec<IpAddr>,
     packet_filter: PacketFilter,
 ) -> thread::JoinHandle<()> {
-    let linktype: i32 = 1;
+    let linktype = datalink_i32(&cap);
     thread::spawn(move || loop {
         match cap.next_packet() {
             Ok(packet) => {
@@ -135,10 +139,10 @@ pub fn process_pcap_file_filtered(
     packet_filter: &PacketFilter,
 ) -> Result<FlowTable> {
     let mut cap = open_pcap_file(path)?;
+    let linktype = datalink_i32(&cap);
     let mut table = FlowTable::new();
     let base = Instant::now();
     let mut index: u64 = 0;
-    let linktype: i32 = 1;
 
     loop {
         match cap.next_packet() {
