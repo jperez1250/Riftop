@@ -1,6 +1,6 @@
 //! Reverse DNS lookup with a simple cache.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::thread;
@@ -16,16 +16,18 @@ struct CacheEntry {
     inserted: Instant,
 }
 
-/// Thread-safe reverse DNS cache.
+/// Thread-safe reverse DNS cache with deduplicated pending request tracking.
 #[derive(Debug, Default)]
 pub struct DnsCache {
     inner: Mutex<HashMap<IpAddr, CacheEntry>>,
+    pending: Mutex<HashSet<IpAddr>>,
 }
 
 impl DnsCache {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(HashMap::new()),
+            pending: Mutex::new(HashSet::new()),
         }
     }
 
@@ -51,12 +53,19 @@ impl DnsCache {
                 inserted: Instant::now(),
             },
         );
+        self.pending.lock().remove(&ip);
     }
 
-    /// Resolve asynchronously in a background thread (fire-and-forget).
+    /// Resolve asynchronously in a background thread if not cached or pending.
     pub fn resolve_async(self: &Arc<Self>, ip: IpAddr) {
         if self.get(&ip).is_some() {
             return;
+        }
+        {
+            let mut pending = self.pending.lock();
+            if !pending.insert(ip) {
+                return;
+            }
         }
         let cache = Arc::clone(self);
         thread::spawn(move || {

@@ -103,14 +103,19 @@ impl RateWindow {
     }
 
     pub fn rate(&self, now: Instant) -> f64 {
-        let cutoff = now - self.max_age;
+        let cutoff = match now.checked_sub(self.max_age) {
+            Some(c) => c,
+            None => Instant::now() - self.max_age,
+        };
         let relevant: Vec<_> = self.samples.iter().filter(|(ts, _)| *ts >= cutoff).collect();
         if relevant.is_empty() {
             return 0.0;
         }
         let total: u64 = relevant.iter().map(|(_, b)| *b).sum();
         let first = relevant.first().map_or(now, |(t, _)| *t);
-        let elapsed = now.duration_since(first).as_secs_f64().max(0.001);
+        let sample_span = now.checked_duration_since(first).map_or(0.0, |d| d.as_secs_f64());
+        let window_secs = self.max_age.as_secs_f64();
+        let elapsed = sample_span.clamp(0.001, window_secs);
         total as f64 / elapsed
     }
 }
@@ -213,6 +218,8 @@ pub struct Snapshot {
     pub taken_at: Instant,
 }
 
+const MAX_FLOWS: usize = 100_000;
+
 #[derive(Debug, Default)]
 pub struct FlowTable {
     flows: HashMap<FlowKey, FlowStats>,
@@ -244,6 +251,12 @@ impl FlowTable {
         match dir {
             Direction::Sent => self.globals.bytes_sent += bytes,
             Direction::Received => self.globals.bytes_recv += bytes,
+        }
+        if !self.flows.contains_key(&key) && self.flows.len() >= MAX_FLOWS {
+            self.expire(now, Duration::from_secs(30));
+            if self.flows.len() >= MAX_FLOWS {
+                return;
+            }
         }
         let entry = self.flows.entry(key.clone()).or_insert_with(|| FlowStats::new(key, now));
         entry.record(now, bytes, dir, tcp);

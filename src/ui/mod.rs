@@ -24,15 +24,21 @@ use riftop::flow::{format_bytes, format_rate, Aggregate, Snapshot};
 use crate::alerts::AlertEngine;
 use crate::top::{format_top_row, top_hosts, top_ports, top_protocols, ViewMode};
 
+use riftop::flow::SortBy;
+
 pub struct App {
     pub flows: SharedFlows,
     pub dns: std::sync::Arc<DnsCache>,
     pub interface: String,
     pub show_ports: bool,
+    pub no_port_resolution: bool,
+    pub use_bytes: bool,
+    pub no_bars: bool,
     pub enable_dns: bool,
     pub max_lines: usize,
     pub should_quit: bool,
     pub aggregate: Aggregate,
+    pub sort: SortBy,
     pub screen_filter: ScreenFilter,
     pub capture_filter: Option<String>,
     pub offline: bool,
@@ -55,10 +61,14 @@ impl App {
             dns,
             interface,
             show_ports,
+            no_port_resolution: false,
+            use_bytes: false,
+            no_bars: false,
             enable_dns,
             max_lines,
             should_quit: false,
             aggregate: Aggregate::Pair,
+            sort: SortBy::Rate10s,
             screen_filter: ScreenFilter::default(),
             capture_filter: None,
             offline: false,
@@ -231,7 +241,7 @@ fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn draw_table(f: &mut Frame<'_>, area: Rect, app: &App) {
     let now = Instant::now();
-    let snap = app.flows.lock().snapshot(256, now);
+    let snap = app.flows.lock().snapshot_sorted(256, now, app.sort);
 
     if app.enable_dns {
         for stats in &snap.flows {
@@ -275,17 +285,31 @@ fn draw_flows(
         .map(|(i, stats)| {
             let a = app.dns.display(&stats.key.a, app.enable_dns);
             let b = app.dns.display(&stats.key.b, app.enable_dns);
+            let port_a_str = if app.no_port_resolution {
+                stats.key.port_a.to_string()
+            } else {
+                riftop::services::service_name(stats.key.port_a, stats.key.protocol)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| stats.key.port_a.to_string())
+            };
+            let port_b_str = if app.no_port_resolution {
+                stats.key.port_b.to_string()
+            } else {
+                riftop::services::service_name(stats.key.port_b, stats.key.protocol)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| stats.key.port_b.to_string())
+            };
             let pair = if app.show_ports {
-                format!("{a}:{} \u{2194} {b}:{}", stats.key.port_a, stats.key.port_b)
+                format!("{a}:{port_a_str} \u{2194} {b}:{port_b_str}")
             } else {
                 format!("{a} \u{2194} {b}")
             };
             Row::new([
                 Cell::from((i + 1).to_string()),
                 Cell::from(pair),
-                Cell::from(format_rate(stats.rate_2s(now))),
-                Cell::from(format_rate(stats.rate_10s(now))),
-                Cell::from(format_rate(stats.rate_40s(now))),
+                Cell::from(riftop::flow::format_rate_units(stats.rate_2s(now), app.use_bytes)),
+                Cell::from(riftop::flow::format_rate_units(stats.rate_10s(now), app.use_bytes)),
+                Cell::from(riftop::flow::format_rate_units(stats.rate_40s(now), app.use_bytes)),
                 Cell::from(format_bytes(stats.total_bytes)),
                 Cell::from(stats.tcp.summary()),
             ])

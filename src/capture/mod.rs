@@ -141,14 +141,20 @@ pub fn process_pcap_file_filtered(
     let mut cap = open_pcap_file(path)?;
     let linktype = datalink_i32(&cap);
     let mut table = FlowTable::new();
-    let base = Instant::now();
-    let mut index: u64 = 0;
+    let base_instant = Instant::now();
+    let mut first_ts: Option<Duration> = None;
 
     loop {
         match cap.next_packet() {
             Ok(packet) => {
-                let when = base + Duration::from_secs(index);
-                index += 1;
+                let pkt_sec = packet.header.ts.tv_sec as u64;
+                let pkt_usec = packet.header.ts.tv_usec as u64;
+                let pkt_ts = Duration::from_secs(pkt_sec) + Duration::from_micros(pkt_usec);
+
+                let first = *first_ts.get_or_insert(pkt_ts);
+                let elapsed_in_pcap = pkt_ts.saturating_sub(first);
+                let when = base_instant + elapsed_in_pcap;
+
                 if let DecodeResult::Ip(ep) = decode_frame(linktype, packet.data) {
                     table.record_filtered(
                         ep.src,

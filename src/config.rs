@@ -18,12 +18,16 @@ pub struct Config {
     pub net_filter6: Option<String>,
     pub screen_filter: Option<String>,
     pub no_dns: bool,
+    pub no_port_resolution: bool,
     pub ports: bool,
+    pub use_bytes: bool,
+    pub no_bars: bool,
     pub link_local: bool,
     pub promiscuous: bool,
     pub interval_ms: Option<u64>,
     pub lines: Option<usize>,
     pub aggregate: Option<String>,
+    pub sort: Option<String>,
     pub output: Option<String>,
     /// Alert when any flow rate_10s exceeds this many bytes/sec (bits if use_bits).
     pub alert_rate_bps: Option<f64>,
@@ -53,12 +57,16 @@ impl Config {
         net_filter6: &Option<String>,
         screen_filter: &Option<String>,
         no_dns: bool,
+        no_port_resolution: bool,
         ports: bool,
+        use_bytes: bool,
+        no_bars: bool,
         link_local: bool,
         promiscuous: bool,
         interval_ms: u64,
         lines: usize,
         aggregate: &str,
+        sort: &str,
         output: &str,
         alert_rate: Option<f64>,
         alert_pps: Option<f64>,
@@ -81,8 +89,17 @@ impl Config {
         if no_dns {
             self.no_dns = true;
         }
+        if no_port_resolution {
+            self.no_port_resolution = true;
+        }
         if ports {
             self.ports = true;
+        }
+        if use_bytes {
+            self.use_bytes = true;
+        }
+        if no_bars {
+            self.no_bars = true;
         }
         if link_local {
             self.link_local = true;
@@ -98,6 +115,9 @@ impl Config {
         }
         if aggregate != "pair" {
             self.aggregate = Some(aggregate.to_string());
+        }
+        if sort != "10s" {
+            self.sort = Some(sort.to_string());
         }
         if output != "tui" {
             self.output = Some(output.to_string());
@@ -128,10 +148,6 @@ impl Config {
 }
 
 fn find_config_file() -> Option<PathBuf> {
-    let local = PathBuf::from("riftop.toml");
-    if local.exists() {
-        return Some(local);
-    }
     if let Ok(home) = std::env::var("HOME") {
         let p = PathBuf::from(home).join(".config/riftop/config.toml");
         if p.exists() {
@@ -163,7 +179,10 @@ fn parse_file(path: &Path) -> Result<Config> {
             "net_filter6" | "net-filter6" => cfg.net_filter6 = Some(val.to_string()),
             "screen_filter" | "screen-filter" => cfg.screen_filter = Some(val.to_string()),
             "no_dns" | "no-dns" => cfg.no_dns = parse_bool(val),
+            "no_port_resolution" | "no-port-resolution" => cfg.no_port_resolution = parse_bool(val),
             "ports" => cfg.ports = parse_bool(val),
+            "use_bytes" | "use-bytes" | "bytes" => cfg.use_bytes = parse_bool(val),
+            "no_bars" | "no-bars" => cfg.no_bars = parse_bool(val),
             "link_local" | "link-local" => cfg.link_local = parse_bool(val),
             "promiscuous" => cfg.promiscuous = parse_bool(val),
             "interval_ms" | "interval-ms" => {

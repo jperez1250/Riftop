@@ -27,7 +27,7 @@ use riftop::dns::DnsCache;
 use riftop::engine::spawn_engine;
 use riftop::export::{write_csv, write_json, write_text, OutputFormat};
 use riftop::filters::{PacketFilter, ScreenFilter};
-use riftop::flow::{Aggregate, FlowTable};
+use riftop::flow::{Aggregate, FlowTable, SortBy};
 use ui::{init_terminal, restore_terminal, run_ui, App};
 
 fn parse_aggregate(s: &str) -> Aggregate {
@@ -51,6 +51,14 @@ fn main() -> anyhow::Result<()> {
     }
 
     let mut cfg = Config::load(args.config.as_deref().map(Path::new)).context("config")?;
+    let sort_str = match args.sort {
+        cli::SortColumn::Rate2s => "2s",
+        cli::SortColumn::Rate10s => "10s",
+        cli::SortColumn::Rate40s => "40s",
+        cli::SortColumn::Source => "source",
+        cli::SortColumn::Destination => "destination",
+    };
+
     cfg.apply_cli(
         &args.interface,
         &args.filter,
@@ -58,12 +66,16 @@ fn main() -> anyhow::Result<()> {
         &args.net_filter6,
         &args.screen_filter,
         args.no_dns,
+        args.no_port_resolution,
         args.ports,
+        args.use_bytes,
+        args.no_bars,
         args.link_local,
         args.promiscuous,
         args.interval_ms,
         args.lines,
         &args.aggregate,
+        sort_str,
         &args.output,
         args.alert_rate_bps,
         args.alert_pps,
@@ -81,11 +93,17 @@ fn main() -> anyhow::Result<()> {
         pps: cfg.alert_pps,
     });
 
+    let sort_mode = SortBy::parse(cfg.sort.as_deref().unwrap_or("10s"));
+
     if let Some(ref path) = args.pcap_file {
         let mut table = process_pcap_file(path, &[]).context("offline PCAP")?;
         table.set_aggregate(aggregate);
         table.set_show_ports(ports);
-        let now = std::time::Instant::now();
+        let now = table
+            .top(1, std::time::Instant::now())
+            .first()
+            .map(|s| s.last_seen)
+            .unwrap_or_else(std::time::Instant::now);
 
         match output {
             OutputFormat::Json => {
@@ -107,6 +125,10 @@ fn main() -> anyhow::Result<()> {
                 let mut app = App::new(flows, dns, path.clone(), ports, enable_dns, lines);
                 app.offline = true;
                 app.aggregate = aggregate;
+                app.sort = sort_mode;
+                app.use_bytes = cfg.use_bytes;
+                app.no_bars = cfg.no_bars;
+                app.no_port_resolution = cfg.no_port_resolution;
                 app.screen_filter = ScreenFilter::new(cfg.screen_filter.clone());
                 app.capture_filter = cfg.filter.clone();
                 app.alerts = Some(alert_engine);
@@ -149,8 +171,9 @@ fn main() -> anyhow::Result<()> {
 
     if matches!(output, OutputFormat::Json | OutputFormat::Text | OutputFormat::Csv) {
         std::thread::sleep(std::time::Duration::from_secs(3));
-        let table = flows.lock();
+        let mut table = flows.lock();
         let now = std::time::Instant::now();
+        table.expire(now, std::time::Duration::from_secs(60));
         match output {
             OutputFormat::Json => {
                 write_json(&mut std::io::stdout(), &table, now, lines, &iface_name)?
@@ -165,6 +188,10 @@ fn main() -> anyhow::Result<()> {
     let mut terminal = init_terminal().context("failed to initialize terminal")?;
     let mut app = App::new(flows, dns, iface_name, ports, enable_dns, lines);
     app.aggregate = aggregate;
+    app.sort = sort_mode;
+    app.use_bytes = cfg.use_bytes;
+    app.no_bars = cfg.no_bars;
+    app.no_port_resolution = cfg.no_port_resolution;
     app.screen_filter = ScreenFilter::new(cfg.screen_filter);
     app.capture_filter = cfg.filter;
     app.dropped = Some(dropped);

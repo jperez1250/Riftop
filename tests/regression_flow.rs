@@ -6,8 +6,16 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::time::Instant;
 
+use riftop::export::json_escape;
 use riftop::flow::{FlowKey, FlowTable};
 use riftop::protocols::{decode_ethernet, DecodeResult};
+
+#[test]
+fn json_escaping_special_chars() {
+    assert_eq!(json_escape("eth0"), "eth0");
+    assert_eq!(json_escape("eth\"0"), "eth\\\"0");
+    assert_eq!(json_escape("line1\nline2"), "line1\\nline2");
+}
 
 #[test]
 fn r2_flow_key_is_bidirectional() {

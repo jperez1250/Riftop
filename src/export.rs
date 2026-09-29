@@ -24,6 +24,24 @@ impl OutputFormat {
     }
 }
 
+pub fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 pub fn write_json(
     out: &mut dyn Write,
     table: &FlowTable,
@@ -33,7 +51,7 @@ pub fn write_json(
 ) -> io::Result<()> {
     let g = table.globals();
     let top = table.top(limit, now);
-    let iface = interface.replace('\\', "\\\\").replace('"', "\\\"");
+    let iface = json_escape(interface);
     write!(out, "{{\"interface\":\"{iface}\",")?;
     write!(out, "\"packets_seen\":{},", g.packets_seen)?;
     write!(out, "\"packets_accepted\":{},", g.packets_accepted)?;
@@ -49,8 +67,8 @@ pub fn write_json(
         write!(
             out,
             "{{\"src\":\"{}\",\"dst\":\"{}\",\"sport\":{},\"dport\":{},\"proto\":{},\"sent\":{},\"recv\":{},\"total\":{},\"rate_2s\":{:.3},\"rate_10s\":{:.3},\"rate_40s\":{:.3}}}",
-            s.key.a,
-            s.key.b,
+            json_escape(&s.key.a.to_string()),
+            json_escape(&s.key.b.to_string()),
             s.key.port_a,
             s.key.port_b,
             s.key.protocol,
