@@ -4,6 +4,7 @@ mod capture;
 mod cli;
 mod dns;
 mod error;
+mod filters;
 mod flow;
 mod protocols;
 mod services;
@@ -20,6 +21,7 @@ use capture::{
 };
 use cli::Args;
 use dns::DnsCache;
+use filters::PacketFilter;
 use flow::FlowTable;
 use ui::{init_terminal, restore_terminal, run_ui, App};
 
@@ -55,11 +57,18 @@ fn main() -> anyhow::Result<()> {
 
     set_filter(&mut cap, args.filter.as_deref()).context("invalid BPF filter")?;
 
+    let packet_filter = PacketFilter::from_options(
+        args.net_filter.as_deref(),
+        args.net_filter6.as_deref(),
+        args.link_local,
+    )
+    .context("invalid net filter")?;
+
     let local_addrs = local_addresses(&iface_name);
     let flows: SharedFlows = Arc::new(Mutex::new(FlowTable::new()));
     let dns = Arc::new(DnsCache::new());
 
-    let _handle = spawn_capture_thread(cap, Arc::clone(&flows), local_addrs);
+    let _handle = spawn_capture_thread(cap, Arc::clone(&flows), local_addrs, packet_filter);
 
     let mut terminal = init_terminal().context("failed to initialize terminal")?;
     let mut app = App::new(
