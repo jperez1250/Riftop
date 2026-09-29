@@ -1,4 +1,4 @@
-//! JSON/text export of flow snapshots.
+//! JSON/text/CSV export of flow snapshots.
 
 use std::io::{self, Write};
 use std::time::Instant;
@@ -10,6 +10,7 @@ pub enum OutputFormat {
     Tui,
     Json,
     Text,
+    Csv,
 }
 
 impl OutputFormat {
@@ -17,6 +18,7 @@ impl OutputFormat {
         match s.to_ascii_lowercase().as_str() {
             "json" => Self::Json,
             "text" | "plain" => Self::Text,
+            "csv" => Self::Csv,
             _ => Self::Tui,
         }
     }
@@ -90,6 +92,33 @@ pub fn write_text(
             format_rate(s.rate_10s(now)),
             format_rate(s.rate_40s(now)),
             format_bytes(s.total_bytes)
+        )?;
+    }
+    Ok(())
+}
+
+pub fn write_csv(
+    out: &mut dyn Write,
+    table: &FlowTable,
+    now: Instant,
+    limit: usize,
+) -> io::Result<()> {
+    writeln!(out, "src,dst,sport,dport,proto,sent,recv,total,rate_2s,rate_10s,rate_40s")?;
+    for s in table.top(limit, now) {
+        writeln!(
+            out,
+            "{},{},{},{},{},{},{},{},{:.3},{:.3},{:.3}",
+            s.key.a,
+            s.key.b,
+            s.key.port_a,
+            s.key.port_b,
+            s.key.protocol,
+            s.sent_bytes,
+            s.recv_bytes,
+            s.total_bytes,
+            s.rate_2s(now),
+            s.rate_10s(now),
+            s.rate_40s(now)
         )?;
     }
     Ok(())
