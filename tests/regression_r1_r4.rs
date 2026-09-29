@@ -56,6 +56,10 @@ fn pcap_record(ts_sec: u32, frame: &[u8]) -> Vec<u8> {
     r
 }
 
+use std::sync::Mutex as StdMutex;
+
+static FIXTURE_LOCK: StdMutex<()> = StdMutex::new(());
+
 fn materialize_fixture() -> PathBuf {
     let mut pcap = Vec::new();
     pcap.extend_from_slice(&0xa1b2c3d4u32.to_le_bytes());
@@ -91,6 +95,7 @@ fn materialize_fixture() -> PathBuf {
 
 #[test]
 fn r4_direction_from_local_address() {
+    let _guard = FIXTURE_LOCK.lock().unwrap();
     let table = process_pcap_file(&materialize_fixture(), &[local_host()]).expect("process pcap");
     assert_eq!(table.len(), 1, "one bidirectional flow expected");
     let stats = table.top(1, Instant::now())[0];
@@ -101,6 +106,7 @@ fn r4_direction_from_local_address() {
 
 #[test]
 fn r4_direction_swaps_when_local_is_remote() {
+    let _guard = FIXTURE_LOCK.lock().unwrap();
     let table = process_pcap_file(&materialize_fixture(), &[remote_host()]).expect("process pcap");
     let stats = table.top(1, Instant::now())[0];
     assert_eq!(stats.sent_bytes, 600);
@@ -109,6 +115,7 @@ fn r4_direction_swaps_when_local_is_remote() {
 
 #[test]
 fn r2_single_flow_key_for_pair() {
+    let _guard = FIXTURE_LOCK.lock().unwrap();
     let table = process_pcap_file(&materialize_fixture(), &[local_host()]).expect("process pcap");
     assert_eq!(table.len(), 1);
     let key = &table.top(1, Instant::now())[0].key;
@@ -119,6 +126,7 @@ fn r2_single_flow_key_for_pair() {
 
 #[test]
 fn r6_non_ip_in_fixture_ignored() {
+    let _guard = FIXTURE_LOCK.lock().unwrap();
     let table = process_pcap_file(&materialize_fixture(), &[local_host()]).expect("process pcap");
     assert_eq!(table.len(), 1);
     assert_eq!(decode_ethernet(&[0u8; 8]), DecodeResult::Ignored);
@@ -146,6 +154,7 @@ fn r1_rate_windows_respect_sample_age() {
 
 #[test]
 fn r1_offline_pcap_totals_and_rates() {
+    let _guard = FIXTURE_LOCK.lock().unwrap();
     let table = process_pcap_file(&materialize_fixture(), &[local_host()]).expect("process pcap");
     let at = Instant::now() + Duration::from_secs(5);
     let stats = table.top(1, at)[0];
