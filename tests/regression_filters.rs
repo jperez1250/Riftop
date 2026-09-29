@@ -52,6 +52,7 @@ fn packet_filter_counts_only_crossing_boundary() {
         &[local],
         now,
         &pf,
+        None,
     ));
     assert!(!table.record_filtered(
         local,
@@ -63,6 +64,7 @@ fn packet_filter_counts_only_crossing_boundary() {
         &[local],
         now,
         &pf,
+        None,
     ));
     assert_eq!(table.len(), 1);
     let s = table.top(1, now)[0];
