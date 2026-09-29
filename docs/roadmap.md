@@ -8,21 +8,20 @@
 - [x] Totales globales (CAPTURED vs VISIBLE)
 - [x] Agregación host-pair / source / destination
 - [x] TUI sobre PCAP (mismo UI que live)
-- [ ] Capacidades / drop root (documentado; setcap en README)
+- [x] Privileges: setcap guidance + root warning (`privileges.rs`)
 
 ## Fase 2 — Modernización
 
 - [x] Snapshot inmutable para TUI
-- [x] JSON export (`--output json`)
+- [x] JSON / text / CSV export (`--output`)
 - [x] CAPTURE vs DISPLAY explícito en header TUI
-- [ ] CSV export
+- [x] Channel acotado capture → engine (`engine.rs`, backpressure + DROP counter)
 - [ ] Config TOML
-- [ ] Channel acotado capture → engine
 - [ ] Mejora interfaces (VLAN, netns)
 
 ## Fase 3 — Troubleshooting
 
-- [ ] TOP hosts/ports/protocols (teclas 1–5)
+- [x] TOP hosts / ports / protocols (teclas 1–4 / Tab)
 - [ ] Métricas TCP básicas
 - [ ] Alertas por rate
 
@@ -31,3 +30,11 @@
 - [ ] Prometheus
 - [ ] HTTP API mínima
 - [ ] Container/netns labels
+
+## Privilegios (Linux)
+
+```bash
+cargo build --release
+sudo setcap cap_net_raw,cap_net_admin=eip target/release/riftop
+./target/release/riftop -i eth0
+```
