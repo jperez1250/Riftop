@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use crate::flow::{format_rate, Snapshot};
+use riftop::flow::{format_rate, Snapshot};
 
 #[derive(Debug, Clone)]
 pub struct Alert {
@@ -56,7 +56,7 @@ impl AlertEngine {
                     self.push(Alert {
                         when: now,
                         message: format!(
-                            "RATE {} \u2194 {}  {} >= {}",
+                            "RATE {} \u{2194} {}  {} >= {}",
                             f.key.a,
                             f.key.b,
                             format_rate(r),

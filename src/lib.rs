@@ -2,6 +2,7 @@
 
 pub mod capture;
 pub mod dns;
+pub mod engine;
 pub mod error;
 pub mod export;
 pub mod filters;

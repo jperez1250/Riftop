@@ -1,19 +1,10 @@
 //! Riftop — modern iftop-style bandwidth monitor (Rust rewrite of legacy C).
 
 mod alerts;
-mod capture;
 mod cli;
 mod config;
-mod dns;
-mod engine;
-mod error;
-mod export;
-mod filters;
-mod flow;
 mod interfaces;
 mod privileges;
-mod protocols;
-mod services;
 mod top;
 mod ui;
 
@@ -25,18 +16,18 @@ use clap::Parser;
 use parking_lot::Mutex;
 
 use alerts::{AlertConfig, AlertEngine};
-use capture::{
-    local_addresses, open_device, process_pcap_file, set_filter, spawn_capture_to_engine, SharedFlows,
-};
 use cli::Args;
 use config::Config;
-use dns::DnsCache;
-use engine::spawn_engine;
-use export::{write_csv, write_json, write_text, OutputFormat};
-use filters::{PacketFilter, ScreenFilter};
-use flow::{Aggregate, FlowTable};
 use interfaces::{current_netns_id, format_iface_table, list_interfaces, pick_default_interface};
 use privileges::warn_if_root;
+use riftop::capture::{
+    local_addresses, open_device, process_pcap_file, set_filter, spawn_capture_to_engine, SharedFlows,
+};
+use riftop::dns::DnsCache;
+use riftop::engine::spawn_engine;
+use riftop::export::{write_csv, write_json, write_text, OutputFormat};
+use riftop::filters::{PacketFilter, ScreenFilter};
+use riftop::flow::{Aggregate, FlowTable};
 use ui::{init_terminal, restore_terminal, run_ui, App};
 
 fn parse_aggregate(s: &str) -> Aggregate {

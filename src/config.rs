@@ -8,7 +8,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::error::{Error, Result};
+use riftop::error::{Error, Result};
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
