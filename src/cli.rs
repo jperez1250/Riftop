@@ -64,17 +64,18 @@ pub struct Args {
     #[arg(long = "aggregate", default_value = "pair")]
     pub aggregate: String,
 
-    /// Path to TOML config (default: ./riftop.toml or ~/.config/riftop/config.toml)
     #[arg(long = "config")]
     pub config: Option<String>,
 
-    /// Alert when a flow exceeds this many bytes/sec (10s rate)
     #[arg(long = "alert-rate-bps")]
     pub alert_rate_bps: Option<f64>,
 
-    /// Alert when global accepted packets/sec exceeds this
     #[arg(long = "alert-pps")]
     pub alert_pps: Option<f64>,
+
+    /// List interfaces (kind, addrs) and netns, then exit
+    #[arg(long = "list-interfaces")]
+    pub list_interfaces: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
