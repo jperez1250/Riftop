@@ -68,11 +68,7 @@ fn main() -> anyhow::Result<()> {
         iface_name,
         args.ports,
         !args.no_dns,
-        !args.no_port_resolution,
-        args.use_bytes,
-        !args.no_bars,
         args.lines,
-        args.sort,
     );
 
     let result = run_ui(&mut app, &mut terminal, args.interval_ms);
