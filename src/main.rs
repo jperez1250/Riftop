@@ -1,7 +1,9 @@
 //! Riftop — modern iftop-style bandwidth monitor (Rust rewrite of legacy C).
 
+mod alerts;
 mod capture;
 mod cli;
+mod config;
 mod dns;
 mod engine;
 mod error;
@@ -14,16 +16,19 @@ mod services;
 mod top;
 mod ui;
 
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Context;
 use clap::Parser;
 use parking_lot::Mutex;
 
+use alerts::{AlertConfig, AlertEngine};
 use capture::{
     local_addresses, open_device, process_pcap_file, set_filter, spawn_capture_to_engine, SharedFlows,
 };
 use cli::Args;
+use config::Config;
 use dns::DnsCache;
 use engine::spawn_engine;
 use export::{write_csv, write_json, write_text, OutputFormat};
@@ -44,45 +49,68 @@ fn main() -> anyhow::Result<()> {
     let _ = warn_if_root(&mut std::io::stderr());
 
     let args = Args::parse();
-    let output = OutputFormat::parse(&args.output);
-    let aggregate = parse_aggregate(&args.aggregate);
+    let mut cfg = Config::load(args.config.as_deref().map(Path::new))
+        .context("config")?;
+    cfg.apply_cli(
+        &args.interface,
+        &args.filter,
+        &args.net_filter,
+        &args.net_filter6,
+        &args.screen_filter,
+        args.no_dns,
+        args.ports,
+        args.link_local,
+        args.promiscuous,
+        args.interval_ms,
+        args.lines,
+        &args.aggregate,
+        &args.output,
+        args.alert_rate_bps,
+        args.alert_pps,
+    );
+
+    let output = OutputFormat::parse(cfg.output());
+    let aggregate = parse_aggregate(cfg.aggregate());
+    let interval_ms = cfg.interval_ms();
+    let lines = cfg.lines();
+    let ports = cfg.ports;
+    let enable_dns = !cfg.no_dns;
+
+    let alert_engine = AlertEngine::new(AlertConfig {
+        rate_bps: cfg.alert_rate_bps,
+        pps: cfg.alert_pps,
+    });
 
     if let Some(ref path) = args.pcap_file {
         let mut table = process_pcap_file(path, &[]).context("offline PCAP")?;
         table.set_aggregate(aggregate);
-        table.set_show_ports(args.ports);
+        table.set_show_ports(ports);
         let now = std::time::Instant::now();
 
         match output {
             OutputFormat::Json => {
-                write_json(&mut std::io::stdout(), &table, now, args.lines, path)?;
+                write_json(&mut std::io::stdout(), &table, now, lines, path)?;
                 return Ok(());
             }
             OutputFormat::Text => {
-                write_text(&mut std::io::stdout(), &table, now, args.lines)?;
+                write_text(&mut std::io::stdout(), &table, now, lines)?;
                 return Ok(());
             }
             OutputFormat::Csv => {
-                write_csv(&mut std::io::stdout(), &table, now, args.lines)?;
+                write_csv(&mut std::io::stdout(), &table, now, lines)?;
                 return Ok(());
             }
             OutputFormat::Tui => {
                 let flows: SharedFlows = Arc::new(Mutex::new(table));
                 let dns = Arc::new(DnsCache::new());
                 let mut terminal = init_terminal().context("terminal")?;
-                let mut app = App::new(
-                    flows,
-                    dns,
-                    path.clone(),
-                    args.ports,
-                    !args.no_dns,
-                    args.lines,
-                );
+                let mut app = App::new(flows, dns, path.clone(), ports, enable_dns, lines);
                 app.offline = true;
                 app.aggregate = aggregate;
-                app.screen_filter = ScreenFilter::new(args.screen_filter);
-                app.capture_filter = args.filter.clone();
-                let result = run_ui(&mut app, &mut terminal, args.interval_ms);
+                app.screen_filter = ScreenFilter::new(cfg.screen_filter.clone());
+                app.capture_filter = cfg.filter.clone();
+                app.alerts = Some(alert_engine);
+                let result = run_ui(&mut app, &mut terminal, interval_ms);
                 restore_terminal(&mut terminal)?;
                 result.context("UI error")?;
                 return Ok(());
@@ -90,10 +118,11 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let mut cap = open_device(args.interface.as_deref(), args.promiscuous)
+    let iface = cfg.interface.clone();
+    let mut cap = open_device(iface.as_deref(), cfg.promiscuous)
         .context("failed to open capture device (try setcap or root)")?;
 
-    let iface_name = args.interface.clone().unwrap_or_else(|| {
+    let iface_name = iface.unwrap_or_else(|| {
         pcap::Device::list()
             .ok()
             .and_then(|devs| {
@@ -104,23 +133,22 @@ fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|| "unknown".into())
     });
 
-    set_filter(&mut cap, args.filter.as_deref()).context("invalid BPF filter")?;
+    set_filter(&mut cap, cfg.filter.as_deref()).context("invalid BPF filter")?;
 
     let packet_filter = PacketFilter::from_options(
-        args.net_filter.as_deref(),
-        args.net_filter6.as_deref(),
-        args.link_local,
+        cfg.net_filter.as_deref(),
+        cfg.net_filter6.as_deref(),
+        cfg.link_local,
     )
     .context("invalid net filter")?;
 
     let local_addrs = local_addresses(&iface_name);
     let mut table = FlowTable::new();
     table.set_aggregate(aggregate);
-    table.set_show_ports(args.ports);
+    table.set_show_ports(ports);
     let flows: SharedFlows = Arc::new(Mutex::new(table));
     let dns = Arc::new(DnsCache::new());
 
-    // Bounded channel: capture → engine → FlowTable
     let engine = spawn_engine(Arc::clone(&flows), local_addrs, packet_filter, None);
     let dropped = Arc::clone(&engine.dropped);
     let _cap_handle = spawn_capture_to_engine(cap, engine);
@@ -130,29 +158,25 @@ fn main() -> anyhow::Result<()> {
         let table = flows.lock();
         let now = std::time::Instant::now();
         match output {
-            OutputFormat::Json => write_json(&mut std::io::stdout(), &table, now, args.lines, &iface_name)?,
-            OutputFormat::Text => write_text(&mut std::io::stdout(), &table, now, args.lines)?,
-            OutputFormat::Csv => write_csv(&mut std::io::stdout(), &table, now, args.lines)?,
+            OutputFormat::Json => {
+                write_json(&mut std::io::stdout(), &table, now, lines, &iface_name)?
+            }
+            OutputFormat::Text => write_text(&mut std::io::stdout(), &table, now, lines)?,
+            OutputFormat::Csv => write_csv(&mut std::io::stdout(), &table, now, lines)?,
             OutputFormat::Tui => {}
         }
         return Ok(());
     }
 
     let mut terminal = init_terminal().context("failed to initialize terminal")?;
-    let mut app = App::new(
-        flows,
-        dns,
-        iface_name,
-        args.ports,
-        !args.no_dns,
-        args.lines,
-    );
+    let mut app = App::new(flows, dns, iface_name, ports, enable_dns, lines);
     app.aggregate = aggregate;
-    app.screen_filter = ScreenFilter::new(args.screen_filter);
-    app.capture_filter = args.filter.clone();
+    app.screen_filter = ScreenFilter::new(cfg.screen_filter);
+    app.capture_filter = cfg.filter;
     app.dropped = Some(dropped);
+    app.alerts = Some(alert_engine);
 
-    let result = run_ui(&mut app, &mut terminal, args.interval_ms);
+    let result = run_ui(&mut app, &mut terminal, interval_ms);
     restore_terminal(&mut terminal)?;
     result.context("UI error")?;
     Ok(())
