@@ -1,9 +1,4 @@
 //! Regression R1 (rate windows) and R4 (direction from local address).
-//!
-//! Synthetic PCAP (same layout as scripts/gen_fixture_r1_r4.py):
-//! - 5 × 100-byte IPv4 TCP  10.0.0.1 → 10.0.0.2  (outgoing if local=10.0.0.1)
-//! - 3 × 200-byte IPv4 TCP  10.0.0.2 → 10.0.0.1  (incoming)
-//! - 1 non-IP frame (ignored)
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
@@ -21,7 +16,6 @@ fn remote_host() -> IpAddr {
     IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2))
 }
 
-/// Build a minimal Ethernet + IPv4 + TCP frame with the given IP total length.
 fn eth_ipv4_tcp(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, ip_total_len: u16) -> Vec<u8> {
     let mut f = Vec::with_capacity(14 + ip_total_len as usize);
     f.extend_from_slice(&[0x02, 0, 0, 0, 0, 0x02]);
@@ -62,7 +56,6 @@ fn pcap_record(ts_sec: u32, frame: &[u8]) -> Vec<u8> {
     r
 }
 
-/// Write deterministic fixture PCAP to a temp path.
 fn materialize_fixture() -> PathBuf {
     let mut pcap = Vec::new();
     pcap.extend_from_slice(&0xa1b2c3d4u32.to_le_bytes());
@@ -138,9 +131,9 @@ fn r1_rate_windows_respect_sample_age() {
     let local = local_host();
     let remote = remote_host();
 
-    table.record(local, remote, 0, 0, 1, 1000, &[local], t0);
-    table.record(local, remote, 0, 0, 1, 1000, &[local], t0 + Duration::from_secs(1));
-    table.record(local, remote, 0, 0, 1, 5000, &[local], t0 + Duration::from_secs(30));
+    table.record(local, remote, 0, 0, 1, 1000, &[local], t0, None);
+    table.record(local, remote, 0, 0, 1, 1000, &[local], t0 + Duration::from_secs(1), None);
+    table.record(local, remote, 0, 0, 1, 5000, &[local], t0 + Duration::from_secs(30), None);
 
     let at = t0 + Duration::from_secs(30);
     let stats = table.top(1, at)[0];
