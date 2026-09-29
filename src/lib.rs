@@ -1,8 +1,9 @@
-//! Riftop library — capture, decode, stats (TUI stays in the binary).
+//! Riftop library — capture, decode, stats, filters.
 
 pub mod capture;
 pub mod dns;
 pub mod error;
+pub mod filters;
 pub mod flow;
 pub mod protocols;
 pub mod services;

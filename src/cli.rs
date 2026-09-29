@@ -51,6 +51,14 @@ pub struct Args {
     #[arg(short = 'F', long = "net-filter")]
     pub net_filter: Option<String>,
 
+    /// IPv6 net/prefix filter (show only traffic in/out of network)
+    #[arg(short = 'G', long = "net-filter6")]
+    pub net_filter6: Option<String>,
+
+    /// Display-only screen filter (substring on host names)
+    #[arg(long = "screen-filter")]
+    pub screen_filter: Option<String>,
+
     /// Refresh interval in milliseconds
     #[arg(short = 't', long, default_value = "1000")]
     pub interval_ms: u64,
