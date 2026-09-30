@@ -366,11 +366,14 @@ impl FlowTable {
         filter: &PacketFilter,
         tcp: Option<TcpFlags>,
     ) -> bool {
-        self.globals.packets_seen += 1;
         if filter.net4.is_some() || filter.net6.is_some() || !filter.allow_link_local {
             match filter.accept(src, dst) {
-                None => return false,
+                None => {
+                    self.globals.packets_seen += 1;
+                    return false;
+                }
                 Some(sent) if filter.has_net_filter(src) => {
+                    self.globals.packets_seen += 1;
                     self.globals.packets_accepted += 1;
                     self.globals.bytes_total += bytes;
                     let key = FlowKey::aggregate(
@@ -390,6 +393,12 @@ impl FlowTable {
                     match dir {
                         Direction::Sent => self.globals.bytes_sent += bytes,
                         Direction::Received => self.globals.bytes_recv += bytes,
+                    }
+                    if !self.flows.contains_key(&key) && self.flows.len() >= MAX_FLOWS {
+                        self.expire(now, Duration::from_secs(30));
+                        if self.flows.len() >= MAX_FLOWS {
+                            return true;
+                        }
                     }
                     let entry = self
                         .flows
