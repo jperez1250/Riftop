@@ -122,8 +122,9 @@ impl RateWindow {
 
     pub fn add(&mut self, now: Instant, bytes: u64) {
         self.samples.push((now, bytes));
-        let cutoff = now - self.max_age;
-        self.samples.retain(|(ts, _)| *ts >= cutoff);
+        if let Some(cutoff) = now.checked_sub(self.max_age) {
+            self.samples.retain(|(ts, _)| *ts >= cutoff);
+        }
     }
 
     pub fn rate(&self, now: Instant) -> f64 {

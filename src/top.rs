@@ -75,10 +75,10 @@ pub fn top_ports(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
                 continue;
             }
             let e = map.entry(port).or_insert((0, 0.0, 0.0, 0.0));
-            e.0 += s.total_bytes / 2;
-            e.1 += s.rate_2s(now) / 2.0;
-            e.2 += s.rate_10s(now) / 2.0;
-            e.3 += s.rate_40s(now) / 2.0;
+            e.0 += s.total_bytes;
+            e.1 += s.rate_2s(now);
+            e.2 += s.rate_10s(now);
+            e.3 += s.rate_40s(now);
         }
     }
     rank(map, n, |p| match service_name(p, 0) {
