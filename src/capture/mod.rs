@@ -153,7 +153,7 @@ pub fn process_pcap_file_filtered(
     let mut cap = open_pcap_file(path)?;
     if let Some(f) = bpf_filter {
         if !f.trim().is_empty() {
-            let _ = cap.filter(&bpf_expression(Some(f)), true);
+            cap.filter(&bpf_expression(Some(f)), true)?;
         }
     }
     let linktype = datalink_i32(&cap);

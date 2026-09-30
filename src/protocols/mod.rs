@@ -36,7 +36,7 @@ pub fn decode_frame(linktype: i32, frame: &[u8]) -> DecodeResult {
     match linktype {
         1 => decode_ethernet(frame),
         12 | 101 => decode_ip_payload(frame, None),
-        113 => decode_linux_sll(frame),
+        113 | 276 => decode_linux_sll(frame), // DLT_LINUX_SLL = 113, DLT_LINUX_SLL2 = 276
         0 => {
             if frame.len() > 4 {
                 decode_ip_payload(&frame[4..], None)
@@ -44,7 +44,7 @@ pub fn decode_frame(linktype: i32, frame: &[u8]) -> DecodeResult {
                 DecodeResult::Ignored
             }
         }
-        _ => decode_ethernet(frame),
+        _ => DecodeResult::Ignored,
     }
 }
 

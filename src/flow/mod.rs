@@ -144,8 +144,13 @@ impl RateWindow {
             return 0.0;
         }
         let total: u64 = relevant.iter().map(|(_, b)| *b).sum();
+        let first = relevant.first().map_or(now, |(t, _)| *t);
+        let sample_span = now
+            .checked_duration_since(first)
+            .map_or(0.0, |d| d.as_secs_f64());
         let window_secs = self.max_age.as_secs_f64();
-        total as f64 / window_secs
+        let elapsed = sample_span.clamp(1.0, window_secs);
+        total as f64 / elapsed
     }
 }
 
@@ -203,6 +208,8 @@ pub struct FlowStats {
     pub total_bytes: u64,
     pub sent_bytes: u64,
     pub recv_bytes: u64,
+    pub bytes_a_to_b: u64,
+    pub bytes_b_to_a: u64,
     pub packets: u64,
     pub tcp: TcpCounters,
     pub rate_2s: RateWindow,
@@ -219,6 +226,8 @@ impl FlowStats {
             total_bytes: 0,
             sent_bytes: 0,
             recv_bytes: 0,
+            bytes_a_to_b: 0,
+            bytes_b_to_a: 0,
             packets: 0,
             tcp: TcpCounters::default(),
             rate_2s: RateWindow::new(Duration::from_secs(2)),
@@ -226,6 +235,14 @@ impl FlowStats {
             rate_40s: RateWindow::new(Duration::from_secs(40)),
             first_seen: now,
             last_seen: now,
+        }
+    }
+
+    pub fn record_endpoints(&mut self, src: IpAddr, sport: u16, bytes: u64) {
+        if (src, sport) == (self.key.a, self.key.port_a) {
+            self.bytes_a_to_b += bytes;
+        } else {
+            self.bytes_b_to_a += bytes;
         }
     }
 
@@ -348,6 +365,7 @@ impl FlowTable {
             .flows
             .entry(key.clone())
             .or_insert_with(|| FlowStats::new(key, now));
+        entry.record_endpoints(src, sport, bytes);
         entry.record(now, bytes, dir, tcp);
     }
 
@@ -402,6 +420,7 @@ impl FlowTable {
                         .flows
                         .entry(key.clone())
                         .or_insert_with(|| FlowStats::new(key, now));
+                    entry.record_endpoints(src, sport, bytes);
                     entry.record(now, bytes, dir, tcp);
                     return true;
                 }
