@@ -115,12 +115,18 @@ pub struct RateWindow {
 impl RateWindow {
     pub fn new(max_age: Duration) -> Self {
         Self {
-            samples: Vec::with_capacity(64),
+            samples: Vec::with_capacity(16),
             max_age,
         }
     }
 
     pub fn add(&mut self, now: Instant, bytes: u64) {
+        if let Some((last_ts, last_bytes)) = self.samples.last_mut() {
+            if now.saturating_duration_since(*last_ts) < Duration::from_millis(100) {
+                *last_bytes += bytes;
+                return;
+            }
+        }
         self.samples.push((now, bytes));
         if let Some(cutoff) = now.checked_sub(self.max_age) {
             self.samples.retain(|(ts, _)| *ts >= cutoff);
@@ -128,10 +134,7 @@ impl RateWindow {
     }
 
     pub fn rate(&self, now: Instant) -> f64 {
-        let cutoff = match now.checked_sub(self.max_age) {
-            Some(c) => c,
-            None => Instant::now() - self.max_age,
-        };
+        let cutoff = now.checked_sub(self.max_age).unwrap_or(now);
         let relevant: Vec<_> = self
             .samples
             .iter()
@@ -141,13 +144,8 @@ impl RateWindow {
             return 0.0;
         }
         let total: u64 = relevant.iter().map(|(_, b)| *b).sum();
-        let first = relevant.first().map_or(now, |(t, _)| *t);
-        let sample_span = now
-            .checked_duration_since(first)
-            .map_or(0.0, |d| d.as_secs_f64());
         let window_secs = self.max_age.as_secs_f64();
-        let elapsed = sample_span.clamp(0.001, window_secs);
-        total as f64 / elapsed
+        total as f64 / window_secs
     }
 }
 

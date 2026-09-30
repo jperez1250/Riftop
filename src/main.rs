@@ -103,9 +103,14 @@ fn main() -> anyhow::Result<()> {
     .context("invalid net filter")?;
 
     if let Some(ref path) = args.pcap_file {
+        let local_addrs = cfg
+            .interface
+            .as_deref()
+            .map(local_addresses)
+            .unwrap_or_default();
         let table = process_pcap_file_filtered(
             path,
-            &[],
+            &local_addrs,
             &packet_filter,
             aggregate,
             ports,
