@@ -18,15 +18,13 @@ use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 use ratatui::Terminal;
 
-use riftop::capture::SharedFlows;
-use riftop::dns::DnsCache;
-use riftop::filters::ScreenFilter;
-use riftop::flow::{format_bytes, Aggregate, Snapshot};
+use crate::capture::SharedFlows;
+use crate::dns::DnsCache;
+use crate::filters::ScreenFilter;
+use crate::flow::{format_bytes, Aggregate, Snapshot, SortBy};
 
 use crate::alerts::AlertEngine;
 use crate::top::{format_top_row, top_hosts, top_ports, top_protocols, ViewMode};
-
-use riftop::flow::SortBy;
 
 pub struct App {
     pub flows: SharedFlows,
@@ -318,14 +316,14 @@ fn draw_flows(f: &mut Frame<'_>, area: Rect, app: &App, snap: &Snapshot, now: In
             let port_a_str = if app.no_port_resolution {
                 stats.key.port_a.to_string()
             } else {
-                riftop::services::service_name(stats.key.port_a, stats.key.protocol)
+                crate::services::service_name(stats.key.port_a, stats.key.protocol)
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| stats.key.port_a.to_string())
             };
             let port_b_str = if app.no_port_resolution {
                 stats.key.port_b.to_string()
             } else {
-                riftop::services::service_name(stats.key.port_b, stats.key.protocol)
+                crate::services::service_name(stats.key.port_b, stats.key.protocol)
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| stats.key.port_b.to_string())
             };
@@ -337,15 +335,15 @@ fn draw_flows(f: &mut Frame<'_>, area: Rect, app: &App, snap: &Snapshot, now: In
             Row::new([
                 Cell::from((i + 1).to_string()),
                 Cell::from(pair),
-                Cell::from(riftop::flow::format_rate_units(
+                Cell::from(crate::flow::format_rate_units(
                     stats.rate_2s(now),
                     app.use_bytes,
                 )),
-                Cell::from(riftop::flow::format_rate_units(
+                Cell::from(crate::flow::format_rate_units(
                     stats.rate_10s(now),
                     app.use_bytes,
                 )),
-                Cell::from(riftop::flow::format_rate_units(
+                Cell::from(crate::flow::format_rate_units(
                     stats.rate_40s(now),
                     app.use_bytes,
                 )),

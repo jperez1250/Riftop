@@ -6,7 +6,7 @@ use std::path::Path;
 
 use pcap::Device;
 
-use riftop::error::{Error, Result};
+use crate::error::{Error, Result};
 
 #[derive(Debug, Clone)]
 pub struct IfaceInfo {

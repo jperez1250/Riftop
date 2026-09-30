@@ -1,12 +1,11 @@
 //! Riftop — modern iftop-style bandwidth monitor (Rust rewrite of legacy C).
 
-mod alerts;
-mod cli;
-mod config;
-mod interfaces;
-mod privileges;
-mod top;
-mod ui;
+use riftop::alerts;
+use riftop::cli;
+use riftop::config;
+use riftop::interfaces;
+use riftop::privileges;
+use riftop::ui;
 
 use std::path::Path;
 use std::sync::Arc;

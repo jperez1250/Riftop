@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use riftop::flow::{format_rate, Snapshot};
+use crate::flow::{format_rate, Snapshot};
 
 #[derive(Debug, Clone)]
 pub struct Alert {

@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::Instant;
 
-use riftop::flow::{format_bytes, format_rate, FlowStats, Snapshot};
-use riftop::services::service_name;
+use crate::flow::{format_bytes, format_rate, FlowStats, Snapshot};
+use crate::services::service_name;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ViewMode {
