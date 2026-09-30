@@ -17,7 +17,8 @@ pub enum ViewMode {
 }
 
 impl ViewMode {
-    pub fn title(self) -> &'static str {
+    #[must_use]
+    pub const fn title(self) -> &'static str {
         match self {
             Self::Flows => "Top flows",
             Self::Hosts => "Top hosts",
@@ -26,7 +27,8 @@ impl ViewMode {
         }
     }
 
-    pub fn cycle(self) -> Self {
+    #[must_use]
+    pub const fn cycle(self) -> Self {
         match self {
             Self::Flows => Self::Hosts,
             Self::Hosts => Self::Ports,
@@ -45,6 +47,7 @@ pub struct TopRow {
     pub rate_40s: f64,
 }
 
+#[must_use]
 pub fn top_hosts(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
     let mut map: HashMap<IpAddr, (u64, f64, f64, f64)> = HashMap::new();
     for s in &snap.flows {
@@ -67,6 +70,7 @@ fn accumulate_host(map: &mut HashMap<IpAddr, (u64, f64, f64, f64)>, s: &FlowStat
     e_b.3 += s.rate_40s(now);
 }
 
+#[must_use]
 pub fn top_ports(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
     let mut map: HashMap<u16, (u64, f64, f64, f64)> = HashMap::new();
     for s in &snap.flows {
@@ -85,12 +89,12 @@ pub fn top_ports(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
             e_b.3 += s.rate_40s(now);
         }
     }
-    rank(map, n, |p| match service_name(p, 0) {
-        Some(name) => format!("{p} ({name})"),
-        None => p.to_string(),
+    rank(map, n, |p| {
+        service_name(p, 0).map_or_else(|| p.to_string(), |name| format!("{p} ({name})"))
     })
 }
 
+#[must_use]
 pub fn top_protocols(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
     let mut map: HashMap<u8, (u64, f64, f64, f64)> = HashMap::new();
     for s in &snap.flows {
@@ -121,7 +125,7 @@ where
         .collect()
 }
 
-fn proto_name(p: u8) -> &'static str {
+const fn proto_name(p: u8) -> &'static str {
     match p {
         1 => "ICMP",
         6 => "TCP",
@@ -132,6 +136,7 @@ fn proto_name(p: u8) -> &'static str {
     }
 }
 
+#[must_use]
 pub fn format_top_row(row: &TopRow) -> (String, String, String, String, String) {
     (
         row.label.clone(),
