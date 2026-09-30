@@ -15,8 +15,7 @@ use riftop::dns::DnsCache;
 use riftop::export::{write_csv, write_json, write_text};
 use riftop::filters::{bpf_expression, NetFilterV4, PacketFilter};
 use riftop::flow::{
-    format_rate, format_rate_units, Aggregate, FlowKey,
-    FlowTable, RateWindow, SortBy,
+    format_rate, format_rate_units, Aggregate, FlowKey, FlowTable, RateWindow, SortBy,
 };
 use riftop::protocols::{decode_ethernet, decode_frame, DecodeResult};
 use riftop::top::{top_hosts, top_ports, top_protocols, ViewMode};
@@ -25,21 +24,27 @@ use riftop::top::{top_hosts, top_ports, top_protocols, ViewMode};
 use std::sync::Mutex as StdMutex;
 static PCAP_FIXTURE_LOCK: StdMutex<()> = StdMutex::new(());
 
-fn make_ipv4_tcp_frame(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, payload_len: usize) -> Vec<u8> {
+fn make_ipv4_tcp_frame(
+    src: [u8; 4],
+    dst: [u8; 4],
+    sport: u16,
+    dport: u16,
+    payload_len: usize,
+) -> Vec<u8> {
     let total_ip_len = 20 + 20 + payload_len;
     let mut f = Vec::with_capacity(14 + total_ip_len);
     // Ethernet Header
     f.extend_from_slice(&[0x02, 0, 0, 0, 0, 0x02]);
     f.extend_from_slice(&[0x02, 0, 0, 0, 0, 0x01]);
     f.extend_from_slice(&[0x08, 0x00]); // IPv4
-    // IPv4 Header
+                                        // IPv4 Header
     f.push(0x45); // Version 4, IHL 5
     f.push(0);
     f.extend_from_slice(&(total_ip_len as u16).to_be_bytes());
     f.extend_from_slice(&1u16.to_be_bytes());
     f.extend_from_slice(&0u16.to_be_bytes());
     f.push(64); // TTL
-    f.push(6);  // TCP
+    f.push(6); // TCP
     f.extend_from_slice(&0u16.to_be_bytes());
     f.extend_from_slice(&src);
     f.extend_from_slice(&dst);
@@ -47,9 +52,9 @@ fn make_ipv4_tcp_frame(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, paylo
     f.extend_from_slice(&sport.to_be_bytes());
     f.extend_from_slice(&dport.to_be_bytes());
     f.extend_from_slice(&100u32.to_be_bytes()); // Seq
-    f.extend_from_slice(&0u32.to_be_bytes());   // Ack
+    f.extend_from_slice(&0u32.to_be_bytes()); // Ack
     f.push(5 << 4); // Data offset
-    f.push(0x02);   // Flags (SYN)
+    f.push(0x02); // Flags (SYN)
     f.extend_from_slice(&8192u16.to_be_bytes());
     f.extend_from_slice(&0u16.to_be_bytes());
     f.extend_from_slice(&0u16.to_be_bytes());
@@ -144,11 +149,11 @@ fn test_06_config_valid_parsing() {
         true,
         false,
         true,
-        2000,
-        50,
-        "src",
-        "40s",
-        "json",
+        Some(2000),
+        Some(50),
+        Some("src"),
+        Some("40s"),
+        Some("json"),
         Some(100.0),
         Some(500.0),
     );
@@ -179,10 +184,25 @@ fn test_08_config_cli_precedence() {
         ..Config::default()
     };
     cfg.apply_cli(
-        &None, &None, &None, &None, &None,
-        false, false, false, false, false, false, false,
-        500, // CLI explicitly requests 500 (non-default 1000)
-        20, "pair", "10s", "tui", None, None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        Some(500), // CLI explicitly requests 500
+        Some(20),
+        Some("pair"),
+        Some("10s"),
+        Some("tui"),
+        None,
+        None,
     );
     assert_eq!(cfg.interval_ms(), 500);
 }
@@ -241,7 +261,8 @@ fn test_12_decode_ethernet_ipv4_udp() {
     let mut f = Vec::with_capacity(14 + 20 + 8 + 10);
     f.extend_from_slice(&[0x02, 0, 0, 0, 0, 0x02, 0x02, 0, 0, 0, 0, 0x01, 0x08, 0x00]);
     // IPv4 Header
-    f.push(0x45); f.push(0);
+    f.push(0x45);
+    f.push(0);
     f.extend_from_slice(&38u16.to_be_bytes()); // total len 20+8+10
     f.extend_from_slice(&[0, 0, 0, 0, 64, 17, 0, 0]); // UDP = 17
     f.extend_from_slice(&[192, 168, 1, 1]);
@@ -267,7 +288,8 @@ fn test_13_decode_ethernet_ipv4_icmp() {
     let mut f = Vec::with_capacity(14 + 20 + 8);
     f.extend_from_slice(&[0x02, 0, 0, 0, 0, 0x02, 0x02, 0, 0, 0, 0, 0x01, 0x08, 0x00]);
     // IPv4 Header
-    f.push(0x45); f.push(0);
+    f.push(0x45);
+    f.push(0);
     f.extend_from_slice(&28u16.to_be_bytes());
     f.extend_from_slice(&[0, 0, 0, 0, 64, 1, 0, 0]); // ICMP = 1
     f.extend_from_slice(&[10, 0, 0, 1]);
@@ -307,8 +329,14 @@ fn test_14_decode_ethernet_ipv6_tcp() {
     f.extend_from_slice(&0u16.to_be_bytes());
 
     if let DecodeResult::Ip(ep) = decode_ethernet(&f) {
-        assert_eq!(ep.src, IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()));
-        assert_eq!(ep.dst, IpAddr::V6(Ipv6Addr::from_str("2001:db8::2").unwrap()));
+        assert_eq!(
+            ep.src,
+            IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap())
+        );
+        assert_eq!(
+            ep.dst,
+            IpAddr::V6(Ipv6Addr::from_str("2001:db8::2").unwrap())
+        );
         assert_eq!(ep.src_port, 8080);
         assert_eq!(ep.dst_port, 443);
         assert_eq!(ep.protocol, 6);
@@ -371,7 +399,10 @@ fn test_16_decode_ipv6_extension_headers() {
     f.extend_from_slice(&0u16.to_be_bytes());
 
     if let DecodeResult::Ip(ep) = decode_ethernet(&f) {
-        assert_eq!(ep.protocol, 6, "IPv6 extension header should resolve final TCP protocol");
+        assert_eq!(
+            ep.protocol, 6,
+            "IPv6 extension header should resolve final TCP protocol"
+        );
         assert_eq!(ep.src_port, 1000);
     } else {
         panic!("expected IPv6 with extension header to decode properly");
@@ -385,8 +416,9 @@ fn test_17_decode_vlan_8021q() {
     f.extend_from_slice(&[0x81, 0x00]); // 802.1Q VLAN
     f.extend_from_slice(&100u16.to_be_bytes()); // VLAN TCI = 100
     f.extend_from_slice(&[0x08, 0x00]); // Encapsulated IPv4
-    // IPv4 Header + TCP
-    f.push(0x45); f.push(0);
+                                        // IPv4 Header + TCP
+    f.push(0x45);
+    f.push(0);
     f.extend_from_slice(&40u16.to_be_bytes());
     f.extend_from_slice(&[0, 0, 0, 0, 64, 6, 0, 0]);
     f.extend_from_slice(&[10, 0, 0, 1]);
@@ -395,7 +427,8 @@ fn test_17_decode_vlan_8021q() {
     f.extend_from_slice(&80u16.to_be_bytes());
     f.extend_from_slice(&1u32.to_be_bytes());
     f.extend_from_slice(&0u32.to_be_bytes());
-    f.push(5 << 4); f.push(0x02);
+    f.push(5 << 4);
+    f.push(0x02);
     f.extend_from_slice(&8192u16.to_be_bytes());
     f.extend_from_slice(&0u16.to_be_bytes());
     f.extend_from_slice(&0u16.to_be_bytes());
@@ -417,7 +450,8 @@ fn test_18_decode_qinq_8021ad() {
     f.extend_from_slice(&[0x81, 0x00]); // Inner 802.1Q
     f.extend_from_slice(&100u16.to_be_bytes());
     f.extend_from_slice(&[0x08, 0x00]); // IPv4
-    f.push(0x45); f.push(0);
+    f.push(0x45);
+    f.push(0);
     f.extend_from_slice(&40u16.to_be_bytes());
     f.extend_from_slice(&[0, 0, 0, 0, 64, 6, 0, 0]);
     f.extend_from_slice(&[10, 0, 0, 1]);
@@ -426,7 +460,8 @@ fn test_18_decode_qinq_8021ad() {
     f.extend_from_slice(&80u16.to_be_bytes());
     f.extend_from_slice(&1u32.to_be_bytes());
     f.extend_from_slice(&0u32.to_be_bytes());
-    f.push(5 << 4); f.push(0x02);
+    f.push(5 << 4);
+    f.push(0x02);
     f.extend_from_slice(&8192u16.to_be_bytes());
     f.extend_from_slice(&0u16.to_be_bytes());
     f.extend_from_slice(&0u16.to_be_bytes());
@@ -452,7 +487,8 @@ fn test_19_linktype_ethernet_pcap() {
 #[test]
 fn test_20_linktype_raw_ip_pcap() {
     let mut ip_frame = Vec::new();
-    ip_frame.push(0x45); ip_frame.push(0);
+    ip_frame.push(0x45);
+    ip_frame.push(0);
     ip_frame.extend_from_slice(&40u16.to_be_bytes());
     ip_frame.extend_from_slice(&[0, 0, 0, 0, 64, 6, 0, 0]);
     ip_frame.extend_from_slice(&[10, 0, 0, 1]);
@@ -461,7 +497,8 @@ fn test_20_linktype_raw_ip_pcap() {
     ip_frame.extend_from_slice(&80u16.to_be_bytes());
     ip_frame.extend_from_slice(&1u32.to_be_bytes());
     ip_frame.extend_from_slice(&0u32.to_be_bytes());
-    ip_frame.push(5 << 4); ip_frame.push(0x02);
+    ip_frame.push(5 << 4);
+    ip_frame.push(0x02);
     ip_frame.extend_from_slice(&8192u16.to_be_bytes());
     ip_frame.extend_from_slice(&0u16.to_be_bytes());
     ip_frame.extend_from_slice(&0u16.to_be_bytes());
@@ -479,7 +516,8 @@ fn test_21_linktype_linux_sll() {
     let mut sll = Vec::with_capacity(16 + 40);
     sll.extend_from_slice(&[0u8; 14]); // SLL header prefix
     sll.extend_from_slice(&[0x08, 0x00]); // Ethertype IPv4
-    sll.push(0x45); sll.push(0);
+    sll.push(0x45);
+    sll.push(0);
     sll.extend_from_slice(&40u16.to_be_bytes());
     sll.extend_from_slice(&[0, 0, 0, 0, 64, 6, 0, 0]);
     sll.extend_from_slice(&[10, 0, 0, 1]);
@@ -488,7 +526,8 @@ fn test_21_linktype_linux_sll() {
     sll.extend_from_slice(&80u16.to_be_bytes());
     sll.extend_from_slice(&1u32.to_be_bytes());
     sll.extend_from_slice(&0u32.to_be_bytes());
-    sll.push(5 << 4); sll.push(0x02);
+    sll.push(5 << 4);
+    sll.push(0x02);
     sll.extend_from_slice(&8192u16.to_be_bytes());
     sll.extend_from_slice(&0u16.to_be_bytes());
     sll.extend_from_slice(&0u16.to_be_bytes());
@@ -501,7 +540,8 @@ fn test_21_linktype_linux_sll() {
 fn test_22_linktype_linux_sll2() {
     let mut null_frame = Vec::with_capacity(4 + 40);
     null_frame.extend_from_slice(&[2, 0, 0, 0]); // AF_INET
-    null_frame.push(0x45); null_frame.push(0);
+    null_frame.push(0x45);
+    null_frame.push(0);
     null_frame.extend_from_slice(&40u16.to_be_bytes());
     null_frame.extend_from_slice(&[0, 0, 0, 0, 64, 6, 0, 0]);
     null_frame.extend_from_slice(&[10, 0, 0, 1]);
@@ -510,7 +550,8 @@ fn test_22_linktype_linux_sll2() {
     null_frame.extend_from_slice(&80u16.to_be_bytes());
     null_frame.extend_from_slice(&1u32.to_be_bytes());
     null_frame.extend_from_slice(&0u32.to_be_bytes());
-    null_frame.push(5 << 4); null_frame.push(0x02);
+    null_frame.push(5 << 4);
+    null_frame.push(0x02);
     null_frame.extend_from_slice(&8192u16.to_be_bytes());
     null_frame.extend_from_slice(&0u16.to_be_bytes());
     null_frame.extend_from_slice(&0u16.to_be_bytes());
@@ -538,7 +579,15 @@ fn test_24_pcap_timestamps_original() {
     let path = dir.join("t24.pcap");
     create_sample_pcap(&path);
 
-    let table = process_pcap_file_filtered(&path, &[], &PacketFilter::default(), Aggregate::Pair, false, None).unwrap();
+    let table = process_pcap_file_filtered(
+        &path,
+        &[],
+        &PacketFilter::default(),
+        Aggregate::Pair,
+        false,
+        None,
+    )
+    .unwrap();
     assert_eq!(table.globals().packets_accepted, 5);
     let _ = fs::remove_file(&path);
 }
@@ -551,7 +600,15 @@ fn test_25_pcap_packet_temporal_order() {
     let path = dir.join("t25.pcap");
     create_sample_pcap(&path);
 
-    let table = process_pcap_file_filtered(&path, &[], &PacketFilter::default(), Aggregate::Pair, false, None).unwrap();
+    let table = process_pcap_file_filtered(
+        &path,
+        &[],
+        &PacketFilter::default(),
+        Aggregate::Pair,
+        false,
+        None,
+    )
+    .unwrap();
     let now = Instant::now() + Duration::from_secs(10);
     let top = table.top(1, now);
     assert_eq!(top.len(), 1);
@@ -569,7 +626,8 @@ fn test_26_pcap_filters_parity() {
 
     let local_addrs = [IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))];
     let pf = PacketFilter::from_options(None, None, true).unwrap();
-    let table = process_pcap_file_filtered(&path, &local_addrs, &pf, Aggregate::Pair, false, None).unwrap();
+    let table =
+        process_pcap_file_filtered(&path, &local_addrs, &pf, Aggregate::Pair, false, None).unwrap();
     assert_eq!(table.globals().packets_accepted, 5);
     let _ = fs::remove_file(&path);
 }
@@ -605,7 +663,17 @@ fn test_29_flow_aggregation_same_flow() {
     let b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
 
     table.record(a, b, 1000, 80, 6, 100, &[a], now, None);
-    table.record(a, b, 1000, 80, 6, 200, &[a], now + Duration::from_millis(100), None);
+    table.record(
+        a,
+        b,
+        1000,
+        80,
+        6,
+        200,
+        &[a],
+        now + Duration::from_millis(100),
+        None,
+    );
 
     assert_eq!(table.len(), 1);
     let top = table.top(1, now);

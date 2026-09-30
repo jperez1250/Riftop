@@ -70,15 +70,19 @@ fn accumulate_host(map: &mut HashMap<IpAddr, (u64, f64, f64, f64)>, s: &FlowStat
 pub fn top_ports(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
     let mut map: HashMap<u16, (u64, f64, f64, f64)> = HashMap::new();
     for s in &snap.flows {
-        for port in [s.key.port_a, s.key.port_b] {
-            if port == 0 {
-                continue;
-            }
-            let e = map.entry(port).or_insert((0, 0.0, 0.0, 0.0));
-            e.0 += s.total_bytes;
-            e.1 += s.rate_2s(now);
-            e.2 += s.rate_10s(now);
-            e.3 += s.rate_40s(now);
+        if s.key.port_a != 0 {
+            let e_a = map.entry(s.key.port_a).or_insert((0, 0.0, 0.0, 0.0));
+            e_a.0 += s.bytes_a_to_b;
+            e_a.1 += s.rate_2s(now);
+            e_a.2 += s.rate_10s(now);
+            e_a.3 += s.rate_40s(now);
+        }
+        if s.key.port_b != 0 {
+            let e_b = map.entry(s.key.port_b).or_insert((0, 0.0, 0.0, 0.0));
+            e_b.0 += s.bytes_b_to_a;
+            e_b.1 += s.rate_2s(now);
+            e_b.2 += s.rate_10s(now);
+            e_b.3 += s.rate_40s(now);
         }
     }
     rank(map, n, |p| match service_name(p, 0) {

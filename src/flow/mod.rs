@@ -12,6 +12,7 @@ use crate::protocols::TcpFlags;
 pub enum Direction {
     Sent,
     Received,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -91,17 +92,17 @@ impl FlowKey {
                 b: IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
                 port_a: if show_ports { sport } else { 0 },
                 port_b: 0,
-                protocol: if show_ports { protocol } else { 0 },
+                protocol,
             },
             Aggregate::Destination => Self {
                 a: IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
                 b: dst,
                 port_a: 0,
                 port_b: if show_ports { dport } else { 0 },
-                protocol: if show_ports { protocol } else { 0 },
+                protocol,
             },
             Aggregate::Pair if show_ports => Self::new(src, dst, sport, dport, protocol),
-            Aggregate::Pair => Self::new(src, dst, 0, 0, 0),
+            Aggregate::Pair => Self::new(src, dst, 0, 0, protocol),
         }
     }
 }
@@ -134,23 +135,20 @@ impl RateWindow {
     }
 
     pub fn rate(&self, now: Instant) -> f64 {
-        let cutoff = now.checked_sub(self.max_age).unwrap_or(now);
-        let relevant: Vec<_> = self
+        let cutoff = now.checked_sub(self.max_age);
+        let total: u64 = self
             .samples
             .iter()
-            .filter(|(ts, _)| *ts >= cutoff)
-            .collect();
-        if relevant.is_empty() {
+            .filter(|(ts, _)| match cutoff {
+                Some(c) => *ts >= c,
+                None => true,
+            })
+            .map(|(_, b)| *b)
+            .sum();
+        if total == 0 {
             return 0.0;
         }
-        let total: u64 = relevant.iter().map(|(_, b)| *b).sum();
-        let first = relevant.first().map_or(now, |(t, _)| *t);
-        let sample_span = now
-            .checked_duration_since(first)
-            .map_or(0.0, |d| d.as_secs_f64());
-        let window_secs = self.max_age.as_secs_f64();
-        let elapsed = sample_span.clamp(1.0, window_secs);
-        total as f64 / elapsed
+        total as f64 / self.max_age.as_secs_f64()
     }
 }
 
@@ -239,7 +237,12 @@ impl FlowStats {
     }
 
     pub fn record_endpoints(&mut self, src: IpAddr, sport: u16, bytes: u64) {
-        if (src, sport) == (self.key.a, self.key.port_a) {
+        let is_a = if self.key.port_a != 0 {
+            (src, sport) == (self.key.a, self.key.port_a)
+        } else {
+            src == self.key.a
+        };
+        if is_a {
             self.bytes_a_to_b += bytes;
         } else {
             self.bytes_b_to_a += bytes;
@@ -252,6 +255,7 @@ impl FlowStats {
         match dir {
             Direction::Sent => self.sent_bytes += bytes,
             Direction::Received => self.recv_bytes += bytes,
+            Direction::Unknown => {}
         }
         if let Some(f) = tcp {
             self.tcp.observe(f);
@@ -335,8 +339,6 @@ impl FlowTable {
         tcp: Option<TcpFlags>,
     ) {
         self.globals.packets_seen += 1;
-        self.globals.packets_accepted += 1;
-        self.globals.bytes_total += bytes;
         let key = FlowKey::aggregate(
             src,
             dst,
@@ -346,20 +348,27 @@ impl FlowTable {
             self.aggregate,
             self.show_ports,
         );
-        let dir = if local_addrs.contains(&src) {
-            Direction::Sent
-        } else {
-            Direction::Received
-        };
-        match dir {
-            Direction::Sent => self.globals.bytes_sent += bytes,
-            Direction::Received => self.globals.bytes_recv += bytes,
-        }
         if !self.flows.contains_key(&key) && self.flows.len() >= MAX_FLOWS {
             self.expire(now, Duration::from_secs(30));
             if self.flows.len() >= MAX_FLOWS {
                 return;
             }
+        }
+        self.globals.packets_accepted += 1;
+        self.globals.bytes_total += bytes;
+        let dir = if local_addrs.is_empty() {
+            Direction::Unknown
+        } else if local_addrs.contains(&src) {
+            Direction::Sent
+        } else if local_addrs.contains(&dst) {
+            Direction::Received
+        } else {
+            Direction::Unknown
+        };
+        match dir {
+            Direction::Sent => self.globals.bytes_sent += bytes,
+            Direction::Received => self.globals.bytes_recv += bytes,
+            Direction::Unknown => {}
         }
         let entry = self
             .flows
@@ -390,8 +399,6 @@ impl FlowTable {
                 }
                 Some(sent) if filter.has_net_filter(src) => {
                     self.globals.packets_seen += 1;
-                    self.globals.packets_accepted += 1;
-                    self.globals.bytes_total += bytes;
                     let key = FlowKey::aggregate(
                         src,
                         dst,
@@ -401,7 +408,17 @@ impl FlowTable {
                         self.aggregate,
                         self.show_ports,
                     );
-                    let dir = if sent {
+                    if !self.flows.contains_key(&key) && self.flows.len() >= MAX_FLOWS {
+                        self.expire(now, Duration::from_secs(30));
+                        if self.flows.len() >= MAX_FLOWS {
+                            return true;
+                        }
+                    }
+                    self.globals.packets_accepted += 1;
+                    self.globals.bytes_total += bytes;
+                    let dir = if local_addrs.is_empty() {
+                        Direction::Unknown
+                    } else if sent {
                         Direction::Sent
                     } else {
                         Direction::Received
@@ -409,12 +426,7 @@ impl FlowTable {
                     match dir {
                         Direction::Sent => self.globals.bytes_sent += bytes,
                         Direction::Received => self.globals.bytes_recv += bytes,
-                    }
-                    if !self.flows.contains_key(&key) && self.flows.len() >= MAX_FLOWS {
-                        self.expire(now, Duration::from_secs(30));
-                        if self.flows.len() >= MAX_FLOWS {
-                            return true;
-                        }
+                        Direction::Unknown => {}
                     }
                     let entry = self
                         .flows

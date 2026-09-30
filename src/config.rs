@@ -8,30 +8,44 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use serde::Deserialize;
+
 use crate::error::{Error, Result};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, rename_all = "snake_case")]
 pub struct Config {
     pub interface: Option<String>,
     pub filter: Option<String>,
+    #[serde(alias = "net-filter")]
     pub net_filter: Option<String>,
+    #[serde(alias = "net-filter6")]
     pub net_filter6: Option<String>,
+    #[serde(alias = "screen-filter")]
     pub screen_filter: Option<String>,
+    #[serde(alias = "no-dns")]
     pub no_dns: bool,
+    #[serde(alias = "no-port-resolution")]
     pub no_port_resolution: bool,
     pub ports: bool,
+    #[serde(alias = "use-bytes", alias = "bytes")]
     pub use_bytes: bool,
+    #[serde(alias = "no-bars")]
     pub no_bars: bool,
+    #[serde(alias = "link-local")]
     pub link_local: bool,
     pub promiscuous: bool,
+    #[serde(alias = "interval-ms")]
     pub interval_ms: Option<u64>,
     pub lines: Option<usize>,
     pub aggregate: Option<String>,
     pub sort: Option<String>,
     pub output: Option<String>,
     /// Alert when any flow rate_10s exceeds this many bytes/sec (bits if use_bits).
+    #[serde(alias = "alert-rate-bps")]
     pub alert_rate_bps: Option<f64>,
     /// Alert when global accepted packets/sec exceeds this.
+    #[serde(alias = "alert-pps")]
     pub alert_pps: Option<f64>,
 }
 
@@ -63,11 +77,11 @@ impl Config {
         no_bars: bool,
         link_local: bool,
         promiscuous: bool,
-        interval_ms: u64,
-        lines: usize,
-        aggregate: &str,
-        sort: &str,
-        output: &str,
+        interval_ms: Option<u64>,
+        lines: Option<usize>,
+        aggregate: Option<&str>,
+        sort: Option<&str>,
+        output: Option<&str>,
         alert_rate: Option<f64>,
         alert_pps: Option<f64>,
     ) {
@@ -107,20 +121,20 @@ impl Config {
         if promiscuous {
             self.promiscuous = true;
         }
-        if interval_ms != 1000 {
-            self.interval_ms = Some(interval_ms);
+        if let Some(v) = interval_ms {
+            self.interval_ms = Some(v);
         }
-        if lines != 20 {
-            self.lines = Some(lines);
+        if let Some(v) = lines {
+            self.lines = Some(v);
         }
-        if aggregate != "pair" {
-            self.aggregate = Some(aggregate.to_string());
+        if let Some(v) = aggregate {
+            self.aggregate = Some(v.to_string());
         }
-        if sort != "10s" {
-            self.sort = Some(sort.to_string());
+        if let Some(v) = sort {
+            self.sort = Some(v.to_string());
         }
-        if output != "tui" {
-            self.output = Some(output.to_string());
+        if let Some(v) = output {
+            self.output = Some(v.to_string());
         }
         if alert_rate.is_some() {
             self.alert_rate_bps = alert_rate;
@@ -157,65 +171,10 @@ fn find_config_file() -> Option<PathBuf> {
     None
 }
 
-/// Minimal TOML-ish key=value / [section] parser (no external dep).
 fn parse_file(path: &Path) -> Result<Config> {
     let text = fs::read_to_string(path)
         .map_err(|e| Error::Other(format!("config {}: {e}", path.display())))?;
-    let mut cfg = Config::default();
-    for raw in text.lines() {
-        let line = raw.split('#').next().unwrap_or("").trim();
-        if line.is_empty() || line.starts_with('[') {
-            continue;
-        }
-        let Some((k, v)) = line.split_once('=') else {
-            continue;
-        };
-        let key = k.trim();
-        let val = v.trim().trim_matches('"').trim_matches('\'');
-        match key {
-            "interface" => cfg.interface = Some(val.to_string()),
-            "filter" | "bpf" => cfg.filter = Some(val.to_string()),
-            "net_filter" | "net-filter" => cfg.net_filter = Some(val.to_string()),
-            "net_filter6" | "net-filter6" => cfg.net_filter6 = Some(val.to_string()),
-            "screen_filter" | "screen-filter" => cfg.screen_filter = Some(val.to_string()),
-            "no_dns" | "no-dns" => cfg.no_dns = parse_bool(val),
-            "no_port_resolution" | "no-port-resolution" => cfg.no_port_resolution = parse_bool(val),
-            "ports" => cfg.ports = parse_bool(val),
-            "use_bytes" | "use-bytes" | "bytes" => cfg.use_bytes = parse_bool(val),
-            "no_bars" | "no-bars" => cfg.no_bars = parse_bool(val),
-            "link_local" | "link-local" => cfg.link_local = parse_bool(val),
-            "promiscuous" => cfg.promiscuous = parse_bool(val),
-            "interval_ms" | "interval-ms" => {
-                if let Ok(n) = val.parse() {
-                    cfg.interval_ms = Some(n);
-                }
-            }
-            "lines" => {
-                if let Ok(n) = val.parse() {
-                    cfg.lines = Some(n);
-                }
-            }
-            "aggregate" => cfg.aggregate = Some(val.to_string()),
-            "sort" => cfg.sort = Some(val.to_string()),
-            "output" => cfg.output = Some(val.to_string()),
-            "alert_rate_bps" | "alert-rate-bps" => {
-                if let Ok(n) = val.parse() {
-                    cfg.alert_rate_bps = Some(n);
-                }
-            }
-            "alert_pps" | "alert-pps" => {
-                if let Ok(n) = val.parse() {
-                    cfg.alert_pps = Some(n);
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(cfg)
-}
-
-fn parse_bool(s: &str) -> bool {
-    matches!(s.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
+    toml::from_str(&text).map_err(|e| Error::Other(format!("config {}: {e}", path.display())))
 }
 
 #[cfg(test)]

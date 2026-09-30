@@ -25,7 +25,8 @@ pub struct PacketEvent {
 
 pub struct EngineHandle {
     pub tx: SyncSender<PacketEvent>,
-    pub dropped: Arc<AtomicU64>,
+    pub queue_full_drops: Arc<AtomicU64>,
+    pub queue_disconnected_drops: Arc<AtomicU64>,
     _join: thread::JoinHandle<()>,
 }
 
@@ -33,14 +34,19 @@ impl EngineHandle {
     pub fn try_send(&self, ev: PacketEvent) {
         match self.tx.try_send(ev) {
             Ok(()) => {}
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
-                self.dropped.fetch_add(1, Ordering::Relaxed);
+            Err(TrySendError::Full(_)) => {
+                self.queue_full_drops.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                self.queue_disconnected_drops
+                    .fetch_add(1, Ordering::Relaxed);
             }
         }
     }
 
     pub fn dropped_count(&self) -> u64 {
-        self.dropped.load(Ordering::Relaxed)
+        self.queue_full_drops.load(Ordering::Relaxed)
+            + self.queue_disconnected_drops.load(Ordering::Relaxed)
     }
 }
 
@@ -54,14 +60,17 @@ pub fn spawn_engine(
 ) -> EngineHandle {
     let cap = capacity.unwrap_or(DEFAULT_CAPACITY);
     let (tx, rx) = sync_channel::<PacketEvent>(cap);
-    let dropped = Arc::new(AtomicU64::new(0));
-    let dropped_c = Arc::clone(&dropped);
+    let queue_full_drops = Arc::new(AtomicU64::new(0));
+    let queue_disconnected_drops = Arc::new(AtomicU64::new(0));
+    let full_c = Arc::clone(&queue_full_drops);
+    let disc_c = Arc::clone(&queue_disconnected_drops);
 
     let join = thread::spawn(move || engine_loop(rx, flows, local_addrs, filter));
 
     EngineHandle {
         tx,
-        dropped: dropped_c,
+        queue_full_drops: full_c,
+        queue_disconnected_drops: disc_c,
         _join: join,
     }
 }

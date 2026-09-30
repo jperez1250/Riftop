@@ -72,11 +72,11 @@ fn main() -> anyhow::Result<()> {
         args.no_bars,
         args.link_local,
         args.promiscuous,
-        args.interval_ms,
-        args.lines,
-        &args.aggregate,
-        sort_str,
-        &args.output,
+        Some(args.interval_ms),
+        Some(args.lines),
+        Some(&args.aggregate),
+        Some(sort_str),
+        Some(&args.output),
         args.alert_rate_bps,
         args.alert_pps,
     );
@@ -198,7 +198,7 @@ fn main() -> anyhow::Result<()> {
     let dns = Arc::new(DnsCache::new());
 
     let engine = spawn_engine(Arc::clone(&flows), local_addrs, packet_filter, None);
-    let dropped = Arc::clone(&engine.dropped);
+    let dropped = Arc::clone(&engine.queue_full_drops);
     let _cap_handle = spawn_capture_to_engine(cap, engine);
 
     if matches!(

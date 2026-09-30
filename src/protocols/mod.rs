@@ -36,7 +36,8 @@ pub fn decode_frame(linktype: i32, frame: &[u8]) -> DecodeResult {
     match linktype {
         1 => decode_ethernet(frame),
         12 | 101 => decode_ip_payload(frame, None),
-        113 | 276 => decode_linux_sll(frame), // DLT_LINUX_SLL = 113, DLT_LINUX_SLL2 = 276
+        113 => decode_linux_sll(frame),  // DLT_LINUX_SLL = 113
+        276 => decode_linux_sll2(frame), // DLT_LINUX_SLL2 = 276
         0 => {
             if frame.len() > 4 {
                 decode_ip_payload(&frame[4..], None)
@@ -82,6 +83,17 @@ fn decode_linux_sll(frame: &[u8]) -> DecodeResult {
         return DecodeResult::Ignored;
     }
     decode_ip_payload(&frame[16..], None)
+}
+
+fn decode_linux_sll2(frame: &[u8]) -> DecodeResult {
+    if frame.len() < 20 {
+        return DecodeResult::Ignored;
+    }
+    let protocol = u16::from_be_bytes([frame[0], frame[1]]);
+    if protocol != 0x0800 && protocol != 0x86DD {
+        return DecodeResult::Ignored;
+    }
+    decode_ip_payload(&frame[20..], None)
 }
 
 fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
