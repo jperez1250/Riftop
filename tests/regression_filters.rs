@@ -90,5 +90,7 @@ fn screen_filter_substring() {
 #[test]
 fn is_link_local_helper() {
     assert!(is_link_local_v6(Ipv6Addr::from_str("fe80::1").unwrap()));
-    assert!(!is_link_local_v6(Ipv6Addr::from_str("2001:db8::1").unwrap()));
+    assert!(!is_link_local_v6(
+        Ipv6Addr::from_str("2001:db8::1").unwrap()
+    ));
 }

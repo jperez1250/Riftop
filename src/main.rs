@@ -21,7 +21,8 @@ use config::Config;
 use interfaces::{current_netns_id, format_iface_table, list_interfaces, pick_default_interface};
 use privileges::warn_if_root;
 use riftop::capture::{
-    local_addresses, open_device, process_pcap_file_filtered, set_filter, spawn_capture_to_engine, SharedFlows,
+    local_addresses, open_device, process_pcap_file_filtered, set_filter, spawn_capture_to_engine,
+    SharedFlows,
 };
 use riftop::dns::DnsCache;
 use riftop::engine::spawn_engine;
@@ -124,11 +125,25 @@ fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             OutputFormat::Text => {
-                write_text(&mut std::io::stdout(), &table, now, lines, sort_mode, cfg.use_bytes)?;
+                write_text(
+                    &mut std::io::stdout(),
+                    &table,
+                    now,
+                    lines,
+                    sort_mode,
+                    cfg.use_bytes,
+                )?;
                 return Ok(());
             }
             OutputFormat::Csv => {
-                write_csv(&mut std::io::stdout(), &table, now, lines, sort_mode, cfg.use_bytes)?;
+                write_csv(
+                    &mut std::io::stdout(),
+                    &table,
+                    now,
+                    lines,
+                    sort_mode,
+                    cfg.use_bytes,
+                )?;
                 return Ok(());
             }
             OutputFormat::Tui => {
@@ -182,17 +197,41 @@ fn main() -> anyhow::Result<()> {
     let dropped = Arc::clone(&engine.dropped);
     let _cap_handle = spawn_capture_to_engine(cap, engine);
 
-    if matches!(output, OutputFormat::Json | OutputFormat::Text | OutputFormat::Csv) {
+    if matches!(
+        output,
+        OutputFormat::Json | OutputFormat::Text | OutputFormat::Csv
+    ) {
         std::thread::sleep(std::time::Duration::from_secs(3));
         let mut table = flows.lock();
         let now = std::time::Instant::now();
         table.expire(now, std::time::Duration::from_secs(60));
         match output {
             OutputFormat::Json => {
-                write_json(&mut std::io::stdout(), &table, now, lines, &iface_name, sort_mode)?;
+                write_json(
+                    &mut std::io::stdout(),
+                    &table,
+                    now,
+                    lines,
+                    &iface_name,
+                    sort_mode,
+                )?;
             }
-            OutputFormat::Text => write_text(&mut std::io::stdout(), &table, now, lines, sort_mode, cfg.use_bytes)?,
-            OutputFormat::Csv => write_csv(&mut std::io::stdout(), &table, now, lines, sort_mode, cfg.use_bytes)?,
+            OutputFormat::Text => write_text(
+                &mut std::io::stdout(),
+                &table,
+                now,
+                lines,
+                sort_mode,
+                cfg.use_bytes,
+            )?,
+            OutputFormat::Csv => write_csv(
+                &mut std::io::stdout(),
+                &table,
+                now,
+                lines,
+                sort_mode,
+                cfg.use_bytes,
+            )?,
             OutputFormat::Tui => {}
         }
         return Ok(());

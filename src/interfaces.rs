@@ -84,9 +84,7 @@ pub fn list_interfaces(include_virtual: bool) -> Result<Vec<IfaceInfo>> {
     let mut out = Vec::new();
     for d in devices {
         let kind = classify(&d.name);
-        if !include_virtual
-            && matches!(kind, IfaceKind::Virtual | IfaceKind::Loopback)
-        {
+        if !include_virtual && matches!(kind, IfaceKind::Virtual | IfaceKind::Loopback) {
             continue;
         }
         let addrs: Vec<IpAddr> = d.addresses.iter().map(|a| a.addr).collect();

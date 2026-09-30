@@ -9,7 +9,6 @@ use crate::error::{Error, Result};
 /// Open a PCAP file for offline iteration.
 pub fn open_pcap_file(path: impl AsRef<Path>) -> Result<Capture<Offline>> {
     let path = path.as_ref();
-    Capture::from_file(path).map_err(|e| {
-        Error::Other(format!("failed to open PCAP {}: {e}", path.display()))
-    })
+    Capture::from_file(path)
+        .map_err(|e| Error::Other(format!("failed to open PCAP {}: {e}", path.display())))
 }

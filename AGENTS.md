@@ -22,34 +22,22 @@ ln -s /usr/lib/x86_64-linux-gnu/libpcap.so.0.8 /usr/lib/x86_64-linux-gnu/libpcap
 
 ---
 
-## 3. Build, Test, and Quality Commands
+## 3. Mandatory Verification Loop (Compile-Test-Fix)
 
-Always run these commands before submitting changes:
+Before marking any task as complete or opening a PR, you MUST execute this loop locally:
 
-### Build & Check
-```bash
-cargo check
-cargo build
-```
+1. **Format Check:** Run `cargo fmt --check`.
+2. **Compile Check:** Run `cargo check --all-targets`.
+3. **Lint Check:** Run `cargo clippy --all-targets -- -D warnings`.
+4. **Prohibit `.unwrap()` / `.expect()`:** Ensure no `.unwrap()` or `.expect()` calls exist in production code (`src/` excluding tests).
+5. **Test Suite:** Run `cargo test --all-targets`.
 
-### Testing
-Run unit and integration tests:
-```bash
-cargo test
-```
-
-To run a specific test target:
-```bash
-cargo test --test regression_flow
-cargo test --test regression_filters
-cargo test --test regression_r1_r4
-```
-
-### Linting & Formatting
-```bash
-cargo clippy
-cargo fmt --check
-```
+### Failure Handling
+If ANY command above fails:
+- Read the compiler/linter error output carefully.
+- Apply a targeted fix to address the specific error message.
+- Re-run the verification loop from Step 1.
+- DO NOT submit code if any test or lint check fails.
 
 ---
 
@@ -68,10 +56,11 @@ The project is split into a library crate (`riftop` library) and a binary execut
 
 ---
 
-## 5. Coding Conventions & Safety
+## 5. Coding Conventions & Safety Rules
 
-1. **`unsafe_code = "forbid"`**: Do not introduce `unsafe` blocks.
-2. **Imports**: Binary modules (`main.rs`, `cli.rs`, `ui/mod.rs`, `config.rs`, `top.rs`, `alerts.rs`, `interfaces.rs`, `privileges.rs`) should import shared types from the library crate (`riftop::...`).
-3. **Ratatui API**: Use Ratatui 0.26 compatible calls (e.g., `f.size()` for `Frame`).
-4. **Etherparse API**: Use Etherparse 0.14 compatible calls (e.g., `NetSlice`, `Ipv4Slice::header().source_addr()`).
-5. **Unicode Sequences**: Use bracketed syntax in format strings (e.g., `\u{2194}`).
+1. **`unsafe_code = "forbid"`**: Do not introduce `unsafe` blocks anywhere in the project.
+2. **No Unhandled Panics**: Do NOT use `.unwrap()` or `.expect()` in non-test production code in `src/`.
+3. **Module Imports**: Binary modules (`main.rs`, `cli.rs`, `ui/mod.rs`, `config.rs`, `top.rs`, `alerts.rs`, `interfaces.rs`, `privileges.rs`) must import shared types from the library crate (`riftop::...`).
+4. **Ratatui API**: Use Ratatui 0.26 compatible calls (e.g., `f.size()` for `Frame`).
+5. **Etherparse API**: Use Etherparse 0.14 compatible calls (e.g., `NetSlice`, `Ipv4Slice::header().source_addr()`).
+6. **Unicode Sequences**: Use bracketed syntax in format strings (e.g., `\u{2194}`).

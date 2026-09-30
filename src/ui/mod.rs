@@ -7,7 +7,9 @@ use std::time::Instant;
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -187,7 +189,10 @@ fn draw(f: &mut Frame<'_>, app: &App) {
 
 fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
     let now = Instant::now();
-    let snap = app.flows.lock().snapshot_sorted(app.max_lines, now, app.sort);
+    let snap = app
+        .flows
+        .lock()
+        .snapshot_sorted(app.max_lines, now, app.sort);
     let g = &snap.globals;
     let drop_n = app
         .dropped
@@ -223,7 +228,9 @@ fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
     let mut text = vec![
         Line::from(Span::styled(
             line1,
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(line2, Style::default().fg(Color::Yellow))),
         Line::from(Span::styled(line3, Style::default().fg(Color::Green))),
@@ -233,7 +240,10 @@ fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
         if let Some(msg) = ae.latest_messages(1).into_iter().next() {
             text.push(Line::from(Span::styled(
                 format!(" ALERT: {msg} "),
-                Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Red)
+                    .add_modifier(Modifier::BOLD),
             )));
         }
     }
@@ -259,24 +269,37 @@ fn draw_table(f: &mut Frame<'_>, area: Rect, app: &App) {
 
     match app.view {
         ViewMode::Flows => draw_flows(f, area, app, &snap, now),
-        ViewMode::Hosts => draw_top_rows(f, area, app.view.title(), &top_hosts(&snap, now, app.max_lines)),
-        ViewMode::Ports => draw_top_rows(f, area, app.view.title(), &top_ports(&snap, now, app.max_lines)),
-        ViewMode::Protocols => {
-            draw_top_rows(f, area, app.view.title(), &top_protocols(&snap, now, app.max_lines))
-        }
+        ViewMode::Hosts => draw_top_rows(
+            f,
+            area,
+            app.view.title(),
+            &top_hosts(&snap, now, app.max_lines),
+        ),
+        ViewMode::Ports => draw_top_rows(
+            f,
+            area,
+            app.view.title(),
+            &top_ports(&snap, now, app.max_lines),
+        ),
+        ViewMode::Protocols => draw_top_rows(
+            f,
+            area,
+            app.view.title(),
+            &top_protocols(&snap, now, app.max_lines),
+        ),
     }
 }
 
-fn draw_flows(
-    f: &mut Frame<'_>,
-    area: Rect,
-    app: &App,
-    snap: &Snapshot,
-    now: Instant,
-) {
+fn draw_flows(f: &mut Frame<'_>, area: Rect, app: &App, snap: &Snapshot, now: Instant) {
     let header_cells = ["#", "Host pair", "2s", "10s", "40s", "Total", "TCP"]
         .iter()
-        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        .map(|h| {
+            Cell::from(*h).style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
+        });
     let header = Row::new(header_cells).height(1);
 
     let rows = snap
@@ -314,9 +337,18 @@ fn draw_flows(
             Row::new([
                 Cell::from((i + 1).to_string()),
                 Cell::from(pair),
-                Cell::from(riftop::flow::format_rate_units(stats.rate_2s(now), app.use_bytes)),
-                Cell::from(riftop::flow::format_rate_units(stats.rate_10s(now), app.use_bytes)),
-                Cell::from(riftop::flow::format_rate_units(stats.rate_40s(now), app.use_bytes)),
+                Cell::from(riftop::flow::format_rate_units(
+                    stats.rate_2s(now),
+                    app.use_bytes,
+                )),
+                Cell::from(riftop::flow::format_rate_units(
+                    stats.rate_10s(now),
+                    app.use_bytes,
+                )),
+                Cell::from(riftop::flow::format_rate_units(
+                    stats.rate_40s(now),
+                    app.use_bytes,
+                )),
                 Cell::from(format_bytes(stats.total_bytes)),
                 Cell::from(stats.tcp.summary()),
             ])
@@ -338,9 +370,13 @@ fn draw_flows(
 }
 
 fn draw_top_rows(f: &mut Frame<'_>, area: Rect, title: &str, rows_data: &[crate::top::TopRow]) {
-    let header_cells = ["#", "Name", "2s", "10s", "40s", "Total"]
-        .iter()
-        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    let header_cells = ["#", "Name", "2s", "10s", "40s", "Total"].iter().map(|h| {
+        Cell::from(*h).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    });
     let header = Row::new(header_cells).height(1);
 
     let rows = rows_data.iter().enumerate().map(|(i, row)| {

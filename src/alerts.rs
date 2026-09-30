@@ -101,6 +101,10 @@ impl AlertEngine {
     }
 
     pub fn latest_messages(&self, n: usize) -> Vec<String> {
-        self.recent.iter().take(n).map(|a| a.message.clone()).collect()
+        self.recent
+            .iter()
+            .take(n)
+            .map(|a| a.message.clone())
+            .collect()
     }
 }

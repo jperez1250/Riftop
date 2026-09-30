@@ -132,7 +132,14 @@ pub fn process_pcap_file(
     path: impl AsRef<std::path::Path>,
     local_addrs: &[IpAddr],
 ) -> Result<FlowTable> {
-    process_pcap_file_filtered(path, local_addrs, &PacketFilter::default(), Aggregate::Pair, false, None)
+    process_pcap_file_filtered(
+        path,
+        local_addrs,
+        &PacketFilter::default(),
+        Aggregate::Pair,
+        false,
+        None,
+    )
 }
 
 pub fn process_pcap_file_filtered(

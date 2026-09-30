@@ -140,8 +140,28 @@ fn r1_rate_windows_respect_sample_age() {
     let remote = remote_host();
 
     table.record(local, remote, 0, 0, 1, 1000, &[local], t0, None);
-    table.record(local, remote, 0, 0, 1, 1000, &[local], t0 + Duration::from_secs(1), None);
-    table.record(local, remote, 0, 0, 1, 5000, &[local], t0 + Duration::from_secs(30), None);
+    table.record(
+        local,
+        remote,
+        0,
+        0,
+        1,
+        1000,
+        &[local],
+        t0 + Duration::from_secs(1),
+        None,
+    );
+    table.record(
+        local,
+        remote,
+        0,
+        0,
+        1,
+        5000,
+        &[local],
+        t0 + Duration::from_secs(30),
+        None,
+    );
 
     let at = t0 + Duration::from_secs(30);
     let stats = table.top(1, at)[0];

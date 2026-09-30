@@ -53,11 +53,7 @@ pub fn top_hosts(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
     rank(map, n, |ip| ip.to_string())
 }
 
-fn accumulate_host(
-    map: &mut HashMap<IpAddr, (u64, f64, f64, f64)>,
-    s: &FlowStats,
-    now: Instant,
-) {
+fn accumulate_host(map: &mut HashMap<IpAddr, (u64, f64, f64, f64)>, s: &FlowStats, now: Instant) {
     let e_a = map.entry(s.key.a).or_insert((0, 0.0, 0.0, 0.0));
     e_a.0 += s.sent_bytes;
     e_a.1 += s.rate_2s(now);

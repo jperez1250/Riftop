@@ -50,7 +50,5 @@ pub fn warn_if_root(stderr: &mut dyn Write) -> io::Result<()> {
 
 /// Human-readable capability advice.
 pub fn setcap_hint(binary: &str) -> String {
-    format!(
-        "sudo setcap cap_net_raw,cap_net_admin=eip {binary}"
-    )
+    format!("sudo setcap cap_net_raw,cap_net_admin=eip {binary}")
 }
