@@ -1,0 +1,7 @@
+- name: crates-io-auth-action
+  # You may pin to the exact commit or the version.
+  # uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18
+  uses: rust-lang/crates-io-auth-action@v1.0.5
+  with:
+    # cargo registry url, defaults to crates.io
+    url: # optional, default is https://crates.io
