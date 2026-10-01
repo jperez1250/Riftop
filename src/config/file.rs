@@ -1,15 +1,13 @@
-//! TOML configuration (optional file + CLI override).
-//!
-//! Search order:
-//! 1. `--config PATH`
-//! 2. `./riftop.toml`
-//! 3. `$HOME/.config/riftop/config.toml`
+//! TOML file parsing for configuration.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::config::defaults::{
+    default_aggregate, default_interval_ms, default_lines, default_output, find_config_file,
+};
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -63,6 +61,7 @@ impl Config {
     }
 
     /// Merge CLI non-default values over config (CLI wins).
+    #[allow(clippy::too_many_arguments)]
     pub fn apply_cli(
         &mut self,
         interface: &Option<String>,
@@ -145,33 +144,25 @@ impl Config {
     }
 
     pub fn interval_ms(&self) -> u64 {
-        self.interval_ms.unwrap_or(1000)
+        self.interval_ms.unwrap_or_else(default_interval_ms)
     }
 
     pub fn lines(&self) -> usize {
-        self.lines.unwrap_or(20)
+        self.lines.unwrap_or_else(default_lines)
     }
 
     pub fn aggregate(&self) -> &str {
-        self.aggregate.as_deref().unwrap_or("pair")
+        self.aggregate
+            .as_deref()
+            .unwrap_or_else(|| default_aggregate())
     }
 
     pub fn output(&self) -> &str {
-        self.output.as_deref().unwrap_or("tui")
+        self.output.as_deref().unwrap_or_else(|| default_output())
     }
 }
 
-fn find_config_file() -> Option<PathBuf> {
-    if let Ok(home) = std::env::var("HOME") {
-        let p = PathBuf::from(home).join(".config/riftop/config.toml");
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
-
-fn parse_file(path: &Path) -> Result<Config> {
+pub fn parse_file(path: &Path) -> Result<Config> {
     let text = fs::read_to_string(path)
         .map_err(|e| Error::Other(format!("config {}: {e}", path.display())))?;
     toml::from_str(&text).map_err(|e| Error::Other(format!("config {}: {e}", path.display())))
