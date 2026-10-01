@@ -166,9 +166,9 @@ pub fn process_pcap_file_filtered(
     loop {
         match cap.next_packet() {
             Ok(packet) => {
-                let packet_sec = packet.header.ts.tv_sec as u64;
-                let packet_usec = packet.header.ts.tv_usec as u64;
-                let pkt_ts = Duration::from_secs(packet_sec) + Duration::from_micros(packet_usec);
+                let pkt_sec = packet.header.ts.tv_sec as u64;
+                let pkt_usec = packet.header.ts.tv_usec as u64;
+                let pkt_ts = Duration::from_secs(pkt_sec) + Duration::from_micros(pkt_usec);
 
                 let first = *first_ts.get_or_insert(pkt_ts);
                 let elapsed_in_pcap = pkt_ts.saturating_sub(first);

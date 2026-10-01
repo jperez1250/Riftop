@@ -97,17 +97,18 @@ fn decode_linux_sll2(frame: &[u8]) -> DecodeResult {
 }
 
 fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
-    use etherparse::{NetSlice, SlicedPacket, TransportSlice};
+    use etherparse::{LaxNetSlice, LaxSlicedPacket, TransportSlice};
 
-    let sliced = match SlicedPacket::from_ip(payload) {
+    let sliced = match LaxSlicedPacket::from_ip(payload) {
         Ok(s) => s,
         Err(_) => return DecodeResult::Ignored,
     };
 
-    let (src, dst, protocol, ip_len) = match sliced.net {
-        Some(NetSlice::Ipv4(h)) => {
+    let (src, dst, protocol, ip_len, incomplete) = match sliced.net {
+        Some(LaxNetSlice::Ipv4(ref h)) => {
             let raw_len = u64::from(h.header().total_len());
-            let actual_len = if raw_len == 0 {
+            let hdr_len = h.header().slice().len() as u64;
+            let ip_len = if raw_len < hdr_len {
                 payload.len() as u64
             } else {
                 raw_len
@@ -115,36 +116,33 @@ fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
             (
                 IpAddr::V4(h.header().source_addr()),
                 IpAddr::V4(h.header().destination_addr()),
-                h.header().protocol().0,
-                actual_len,
+                h.payload().ip_number.0,
+                ip_len,
+                h.payload().incomplete,
             )
         }
-        Some(NetSlice::Ipv6(ref h)) => {
-            let mut final_proto = h.header().next_header().0;
-            for ext in h.extensions().clone() {
-                use etherparse::Ipv6ExtensionSlice;
-                match ext {
-                    Ipv6ExtensionSlice::HopByHop(s) => final_proto = s.next_header().0,
-                    Ipv6ExtensionSlice::Routing(s) => final_proto = s.next_header().0,
-                    Ipv6ExtensionSlice::Fragment(s) => final_proto = s.next_header().0,
-                    Ipv6ExtensionSlice::DestinationOptions(s) => final_proto = s.next_header().0,
-                    Ipv6ExtensionSlice::Authentication(s) => final_proto = s.next_header().0,
-                }
-            }
-            let raw_len = u64::from(h.header().payload_length()) + 40;
-            let actual_len = if raw_len == 40 {
+        Some(LaxNetSlice::Ipv6(ref h)) => {
+            let payload_len = u64::from(h.header().payload_length());
+            let ip_len = if payload_len == 0 {
                 payload.len() as u64
             } else {
-                raw_len
+                payload_len + 40
             };
             (
                 IpAddr::V6(h.header().source_addr()),
                 IpAddr::V6(h.header().destination_addr()),
-                final_proto,
-                actual_len,
+                h.payload().ip_number.0,
+                ip_len,
+                h.payload().incomplete,
             )
         }
-        _ => return DecodeResult::Ignored,
+        None => return DecodeResult::Ignored,
+    };
+
+    let missing = if incomplete {
+        ip_len.saturating_sub(payload.len() as u64)
+    } else {
+        0
     };
 
     let (src_port, dst_port, tcp) = match sliced.transport {
@@ -154,7 +152,7 @@ fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
             let fin = t.fin();
             let rst = t.rst();
             let psh = t.psh();
-            let payload_len = t.payload().len() as u32;
+            let payload_len = (t.payload().len() as u64 + missing).min(u64::from(u32::MAX)) as u32;
             let pure_ack = ack && !syn && !fin && !rst && payload_len == 0;
             (
                 t.source_port(),

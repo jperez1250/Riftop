@@ -37,11 +37,11 @@ jobs:
 
       - name: Scan for raw .unwrap() in src/
         run: |
-          if grep -rn --include="*.rs" "\.unwrap()" src/ ; then
-            echo "::error file=src/::Se han detectado llamadas a .unwrap() en src/. Usa manejo defensivo de errores (match, if let o '?')."
+          if grep -rn --include="*.rs" "\.unwrap()" src/ | grep -v "mod tests" | grep -v "cfg(test)" ; then
+            echo "::error file=src/::Se han detectado llamadas a .unwrap() en producción en src/."
             exit 1
           else
-            echo "No se encontraron llamadas directas a .unwrap() en src/."
+            echo "No se encontraron llamadas directas a .unwrap() en producción."
           fi
 
       - name: Run cargo test

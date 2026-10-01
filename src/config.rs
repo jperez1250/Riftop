@@ -16,6 +16,7 @@ use crate::error::{Error, Result};
 #[serde(default, deny_unknown_fields, rename_all = "snake_case")]
 pub struct Config {
     pub interface: Option<String>,
+    #[serde(alias = "bpf")]
     pub filter: Option<String>,
     #[serde(alias = "net-filter")]
     pub net_filter: Option<String>,
@@ -51,12 +52,13 @@ pub struct Config {
 
 impl Config {
     pub fn load(explicit: Option<&Path>) -> Result<Self> {
-        let path = if let Some(p) = explicit {
-            Some(p.to_path_buf())
-        } else {
-            find_config_file()
-        };
-        match path {
+        if let Some(p) = explicit {
+            if !p.exists() {
+                return Err(Error::Other(format!("config file not found: {}", p.display())));
+            }
+            return parse_file(p);
+        }
+        match find_config_file() {
             Some(p) if p.exists() => parse_file(&p),
             _ => Ok(Self::default()),
         }
