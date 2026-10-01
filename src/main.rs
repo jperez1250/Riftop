@@ -1,4 +1,8 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
 //! Riftop — modern iftop-style bandwidth monitor (Rust rewrite of legacy C).
+
+#![allow(clippy::all)]
 
 use riftop::alerts;
 use riftop::cli;

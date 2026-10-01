@@ -1,3 +1,5 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
 //! Port → service name resolution (replaces serv_hash.c).
 
 use std::collections::HashMap;

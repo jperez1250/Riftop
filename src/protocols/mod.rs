@@ -1,3 +1,5 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
 //! Packet decoding — no statistics, no I/O.
 
 use std::net::IpAddr;

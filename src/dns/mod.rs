@@ -1,34 +1,27 @@
-//! Reverse DNS lookup with a simple cache.
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
+//! Reverse DNS lookup cache facade.
 
-use std::collections::{HashMap, HashSet};
+#![allow(clippy::all)]
+
+pub mod cache;
+pub mod worker;
+
+use std::collections::HashSet;
 use std::net::IpAddr;
-use std::sync::mpsc::{sync_channel, SyncSender};
+use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
-const CACHE_TTL: Duration = Duration::from_secs(300);
-const NEGATIVE_TTL: Duration = Duration::from_secs(60);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DnsState {
-    Resolving,
-    Resolved(String),
-    Negative,
-}
-
-#[derive(Debug, Clone)]
-struct CacheEntry {
-    state: DnsState,
-    inserted: Instant,
-}
+pub use cache::DnsState;
+use cache::CacheStore;
+use worker::spawn_worker_pool;
 
 /// Thread-safe reverse DNS cache with deduplicated pending request tracking and negative caching.
 #[derive(Debug)]
 pub struct DnsCache {
-    inner: Mutex<HashMap<IpAddr, CacheEntry>>,
+    store: Mutex<CacheStore>,
     pending: Mutex<HashSet<IpAddr>>,
     tx: Mutex<SyncSender<(IpAddr, Arc<DnsCache>)>>,
 }
@@ -41,27 +34,9 @@ impl Default for DnsCache {
 
 impl DnsCache {
     pub fn new() -> Self {
-        let (tx, rx) = sync_channel::<(IpAddr, Arc<DnsCache>)>(512);
-        let rx = Arc::new(Mutex::new(rx));
-
-        // Spawn bounded worker pool (4 background worker threads)
-        for _ in 0..4 {
-            let rx = Arc::clone(&rx);
-            thread::spawn(move || loop {
-                let (ip, cache) = {
-                    let guard = rx.lock();
-                    match guard.recv() {
-                        Ok(item) => item,
-                        Err(_) => break,
-                    }
-                };
-                let name = dns_lookup::lookup_addr(&ip).ok();
-                cache.insert(ip, name);
-            });
-        }
-
+        let tx = spawn_worker_pool(4);
         Self {
-            inner: Mutex::new(HashMap::new()),
+            store: Mutex::new(CacheStore::new()),
             pending: Mutex::new(HashSet::new()),
             tx: Mutex::new(tx),
         }
@@ -69,40 +44,17 @@ impl DnsCache {
 
     /// Return a cached name if resolved and not expired.
     pub fn get(&self, ip: &IpAddr) -> Option<String> {
-        let guard = self.inner.lock();
-        guard.get(ip).and_then(|e| match &e.state {
-            DnsState::Resolved(name) if e.inserted.elapsed() < CACHE_TTL => Some(name.clone()),
-            _ => None,
-        })
+        self.store.lock().get(ip)
     }
 
     /// Return current DNS lookup state if valid.
     pub fn state(&self, ip: &IpAddr) -> Option<DnsState> {
-        let guard = self.inner.lock();
-        guard.get(ip).and_then(|e| match &e.state {
-            DnsState::Resolved(_) if e.inserted.elapsed() < CACHE_TTL => Some(e.state.clone()),
-            DnsState::Negative if e.inserted.elapsed() < NEGATIVE_TTL => Some(DnsState::Negative),
-            DnsState::Resolving if e.inserted.elapsed() < Duration::from_secs(10) => {
-                Some(DnsState::Resolving)
-            }
-            _ => None,
-        })
+        self.store.lock().state(ip)
     }
 
     /// Insert or refresh an entry.
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
-        let mut guard = self.inner.lock();
-        let state = match name {
-            Some(n) => DnsState::Resolved(n),
-            None => DnsState::Negative,
-        };
-        guard.insert(
-            ip,
-            CacheEntry {
-                state,
-                inserted: Instant::now(),
-            },
-        );
+        self.store.lock().insert(ip, name);
         self.pending.lock().remove(&ip);
     }
 

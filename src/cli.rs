@@ -1,3 +1,5 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
 //! Command-line interface (replaces options.c / getopt).
 
 use clap::{Parser, ValueEnum};

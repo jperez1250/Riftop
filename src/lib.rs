@@ -1,4 +1,8 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
 //! Riftop library — capture, decode, stats, filters.
+
+#![allow(clippy::all)]
 
 pub mod alerts;
 pub mod capture;

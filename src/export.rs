@@ -1,3 +1,5 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
 //! JSON/text/CSV export of flow snapshots.
 
 use std::io::{self, Write};

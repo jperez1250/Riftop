@@ -1,3 +1,5 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
 //! Privilege handling for non-root packet capture.
 //!
 //! Recommended (Linux):

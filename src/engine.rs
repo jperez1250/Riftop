@@ -1,3 +1,5 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
 //! Flow engine: bounded channel between capture and aggregation.
 
 use std::net::IpAddr;

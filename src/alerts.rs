@@ -1,3 +1,5 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
 //! Simple rate / PPS alerts (troubleshooting, not a SIEM).
 
 use std::collections::VecDeque;

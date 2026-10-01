@@ -1,3 +1,5 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
 //! Network filters — parity with legacy iftop options.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};

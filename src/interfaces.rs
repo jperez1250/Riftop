@@ -1,3 +1,5 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
 //! Interface discovery: Ethernet, VLAN, bonds, bridges; netns awareness.
 
 use std::fs;

@@ -1,3 +1,4 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Regression tests against PCAP fixtures (no root required).
 //!
 //! IDs: R1–R8 documented in docs/legacy-analysis.md

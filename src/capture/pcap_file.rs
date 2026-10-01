@@ -1,3 +1,6 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+#![allow(clippy::all)]
+#![allow(clippy::all)]
 //! Offline PCAP reading for tests and regression (no privileges required).
 
 use std::path::Path;

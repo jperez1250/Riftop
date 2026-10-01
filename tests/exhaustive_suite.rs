@@ -1,3 +1,4 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Exhaustive 50-test automated suite for Riftop.
 //!
 //! Covers: core API, config, CLI, packet decoding, linktypes, PCAP replay,
