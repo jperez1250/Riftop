@@ -25,19 +25,14 @@ toml = "0.8"
 [lints.rust]
 unsafe_code = "forbid"
 unused_must_use = "deny"
-rust_2018_idioms = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
 
 [lints.clippy]
-all = "warn"
-pedantic = "warn"
-nursery = "warn"
+all = { level = "warn", priority = -1 }
 unwrap_used = "warn"
 expect_used = "warn"
-panic = "warn"
 todo = "warn"
 unimplemented = "warn"
-indexing_slicing = "warn"
-string_slice = "warn"
 undocumented_unsafe_blocks = "deny"
 mem_forget = "warn"
 

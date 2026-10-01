@@ -178,7 +178,7 @@ fn draw(f: &mut Frame<'_>, app: &App) {
             Constraint::Min(10),
             Constraint::Length(2),
         ])
-        .split(f.size());
+        .split(f.area());
 
     draw_header(f, chunks[0], app);
     draw_table(f, chunks[1], app);

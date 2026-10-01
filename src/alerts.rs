@@ -11,21 +11,12 @@ pub struct Alert {
     pub message: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AlertConfig {
     /// Bytes/sec (not bits) threshold for any single flow rate_10s.
     pub rate_bps: Option<f64>,
     /// Global packets/sec (accepted) threshold.
     pub pps: Option<f64>,
-}
-
-impl Default for AlertConfig {
-    fn default() -> Self {
-        Self {
-            rate_bps: None,
-            pps: None,
-        }
-    }
 }
 
 #[derive(Debug, Default)]

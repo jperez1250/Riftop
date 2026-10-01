@@ -92,17 +92,17 @@ impl FlowKey {
                 b: IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
                 port_a: if show_ports { sport } else { 0 },
                 port_b: 0,
-                protocol,
+                protocol: if show_ports { protocol } else { 0 },
             },
             Aggregate::Destination => Self {
                 a: IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
                 b: dst,
                 port_a: 0,
                 port_b: if show_ports { dport } else { 0 },
-                protocol,
+                protocol: if show_ports { protocol } else { 0 },
             },
             Aggregate::Pair if show_ports => Self::new(src, dst, sport, dport, protocol),
-            Aggregate::Pair => Self::new(src, dst, 0, 0, protocol),
+            Aggregate::Pair => Self::new(src, dst, 0, 0, 0),
         }
     }
 }
@@ -213,6 +213,12 @@ pub struct FlowStats {
     pub rate_2s: RateWindow,
     pub rate_10s: RateWindow,
     pub rate_40s: RateWindow,
+    pub rate_a_to_b_2s: RateWindow,
+    pub rate_a_to_b_10s: RateWindow,
+    pub rate_a_to_b_40s: RateWindow,
+    pub rate_b_to_a_2s: RateWindow,
+    pub rate_b_to_a_10s: RateWindow,
+    pub rate_b_to_a_40s: RateWindow,
     pub first_seen: Instant,
     pub last_seen: Instant,
 }
@@ -231,12 +237,18 @@ impl FlowStats {
             rate_2s: RateWindow::new(Duration::from_secs(2)),
             rate_10s: RateWindow::new(Duration::from_secs(10)),
             rate_40s: RateWindow::new(Duration::from_secs(40)),
+            rate_a_to_b_2s: RateWindow::new(Duration::from_secs(2)),
+            rate_a_to_b_10s: RateWindow::new(Duration::from_secs(10)),
+            rate_a_to_b_40s: RateWindow::new(Duration::from_secs(40)),
+            rate_b_to_a_2s: RateWindow::new(Duration::from_secs(2)),
+            rate_b_to_a_10s: RateWindow::new(Duration::from_secs(10)),
+            rate_b_to_a_40s: RateWindow::new(Duration::from_secs(40)),
             first_seen: now,
             last_seen: now,
         }
     }
 
-    pub fn record_endpoints(&mut self, src: IpAddr, sport: u16, bytes: u64) {
+    pub fn record_endpoints(&mut self, now: Instant, src: IpAddr, sport: u16, bytes: u64) {
         let is_a = if self.key.port_a != 0 {
             (src, sport) == (self.key.a, self.key.port_a)
         } else {
@@ -244,8 +256,14 @@ impl FlowStats {
         };
         if is_a {
             self.bytes_a_to_b += bytes;
+            self.rate_a_to_b_2s.add(now, bytes);
+            self.rate_a_to_b_10s.add(now, bytes);
+            self.rate_a_to_b_40s.add(now, bytes);
         } else {
             self.bytes_b_to_a += bytes;
+            self.rate_b_to_a_2s.add(now, bytes);
+            self.rate_b_to_a_10s.add(now, bytes);
+            self.rate_b_to_a_40s.add(now, bytes);
         }
     }
 
@@ -326,6 +344,7 @@ impl FlowTable {
         self.globals.clone()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn record(
         &mut self,
         src: IpAddr,
@@ -374,10 +393,11 @@ impl FlowTable {
             .flows
             .entry(key.clone())
             .or_insert_with(|| FlowStats::new(key, now));
-        entry.record_endpoints(src, sport, bytes);
+        entry.record_endpoints(now, src, sport, bytes);
         entry.record(now, bytes, dir, tcp);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn record_filtered(
         &mut self,
         src: IpAddr,
@@ -416,9 +436,7 @@ impl FlowTable {
                     }
                     self.globals.packets_accepted += 1;
                     self.globals.bytes_total += bytes;
-                    let dir = if local_addrs.is_empty() {
-                        Direction::Unknown
-                    } else if sent {
+                    let dir = if sent {
                         Direction::Sent
                     } else {
                         Direction::Received
@@ -432,7 +450,7 @@ impl FlowTable {
                         .flows
                         .entry(key.clone())
                         .or_insert_with(|| FlowStats::new(key, now));
-                    entry.record_endpoints(src, sport, bytes);
+                    entry.record_endpoints(now, src, sport, bytes);
                     entry.record(now, bytes, dir, tcp);
                     return true;
                 }

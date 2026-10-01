@@ -538,25 +538,26 @@ fn test_21_linktype_linux_sll() {
 
 #[test]
 fn test_22_linktype_linux_sll2() {
-    let mut null_frame = Vec::with_capacity(4 + 40);
-    null_frame.extend_from_slice(&[2, 0, 0, 0]); // AF_INET
-    null_frame.push(0x45);
-    null_frame.push(0);
-    null_frame.extend_from_slice(&40u16.to_be_bytes());
-    null_frame.extend_from_slice(&[0, 0, 0, 0, 64, 6, 0, 0]);
-    null_frame.extend_from_slice(&[10, 0, 0, 1]);
-    null_frame.extend_from_slice(&[10, 0, 0, 2]);
-    null_frame.extend_from_slice(&3000u16.to_be_bytes());
-    null_frame.extend_from_slice(&80u16.to_be_bytes());
-    null_frame.extend_from_slice(&1u32.to_be_bytes());
-    null_frame.extend_from_slice(&0u32.to_be_bytes());
-    null_frame.push(5 << 4);
-    null_frame.push(0x02);
-    null_frame.extend_from_slice(&8192u16.to_be_bytes());
-    null_frame.extend_from_slice(&0u16.to_be_bytes());
-    null_frame.extend_from_slice(&0u16.to_be_bytes());
+    let mut sll2 = Vec::with_capacity(20 + 40);
+    sll2.extend_from_slice(&[0x08, 0x00]); // Protocol = IPv4 (0x0800)
+    sll2.extend_from_slice(&[0u8; 18]); // Remaining 18 bytes of SLL2 header
+    sll2.push(0x45);
+    sll2.push(0);
+    sll2.extend_from_slice(&40u16.to_be_bytes());
+    sll2.extend_from_slice(&[0, 0, 0, 0, 64, 6, 0, 0]);
+    sll2.extend_from_slice(&[10, 0, 0, 1]);
+    sll2.extend_from_slice(&[10, 0, 0, 2]);
+    sll2.extend_from_slice(&3000u16.to_be_bytes());
+    sll2.extend_from_slice(&80u16.to_be_bytes());
+    sll2.extend_from_slice(&1u32.to_be_bytes());
+    sll2.extend_from_slice(&0u32.to_be_bytes());
+    sll2.push(5 << 4);
+    sll2.push(0x02);
+    sll2.extend_from_slice(&8192u16.to_be_bytes());
+    sll2.extend_from_slice(&0u16.to_be_bytes());
+    sll2.extend_from_slice(&0u16.to_be_bytes());
 
-    let res = decode_frame(0, &null_frame); // DLT_NULL = 0
+    let res = decode_frame(276, &sll2); // DLT_LINUX_SLL2 = 276
     assert!(matches!(res, DecodeResult::Ip(_)));
 }
 
@@ -750,11 +751,13 @@ fn test_35_max_flow_capacity_limit() {
     let now = Instant::now();
     let local = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
 
-    for i in 0..105 {
+    for i in 0..200 {
         let b = IpAddr::V4(Ipv4Addr::new(10, (i / 256) as u8, (i % 256) as u8, 1));
         table.record(local, b, 0, 0, 6, 10, &[local], now, None);
     }
-    assert!(table.len() <= 100_000);
+    assert_eq!(table.len(), 200);
+    assert_eq!(table.globals().packets_seen, 200);
+    assert_eq!(table.globals().packets_accepted, 200);
 }
 
 #[test]
@@ -798,8 +801,7 @@ fn test_38_rate_calculation_2s() {
 
     let at = t0 + Duration::from_secs(1);
     let r = rw.rate(at);
-    assert!(r > 0.0);
-    assert!(r.is_finite());
+    assert_eq!(r, 1000.0);
 }
 
 #[test]
@@ -961,11 +963,11 @@ fn test_47_dns_cache_hit_and_dedup() {
 #[test]
 fn test_48_dns_concurrency_bounding() {
     let cache = Arc::new(DnsCache::new());
-    let ip = IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1));
+    let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
 
     cache.resolve_async(ip);
-    cache.resolve_async(ip); // Second call must deduplicate
-    assert!(cache.get(&ip).is_none() || cache.get(&ip).is_some());
+    cache.resolve_async(ip); // Second call must deduplicate pending request
+    assert_eq!(cache.display(&ip, false), "192.0.2.1");
 }
 
 // ============================================================================
