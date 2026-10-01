@@ -13,7 +13,7 @@ use serde::Deserialize;
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, rename_all = "snake_case")]
+#[serde(default, deny_unknown_fields, rename_all = "snake_case")]
 pub struct Config {
     pub interface: Option<String>,
     pub filter: Option<String>,
@@ -162,6 +162,10 @@ impl Config {
 }
 
 fn find_config_file() -> Option<PathBuf> {
+    let cwd_path = PathBuf::from("./riftop.toml");
+    if cwd_path.exists() {
+        return Some(cwd_path);
+    }
     if let Ok(home) = std::env::var("HOME") {
         let p = PathBuf::from(home).join(".config/riftop/config.toml");
         if p.exists() {

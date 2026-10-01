@@ -110,7 +110,7 @@ fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
             let actual_len = if raw_len == 0 {
                 payload.len() as u64
             } else {
-                raw_len.max(payload.len() as u64)
+                raw_len
             };
             (
                 IpAddr::V4(h.header().source_addr()),
@@ -135,7 +135,7 @@ fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
             let actual_len = if raw_len == 40 {
                 payload.len() as u64
             } else {
-                raw_len.max(payload.len() as u64)
+                raw_len
             };
             (
                 IpAddr::V6(h.header().source_addr()),
