@@ -9,7 +9,7 @@ export RUST_BACKTRACE=1
 PROJECT_DIR="${1:-/app}"
 
 echo "============================================================"
-echo " Riftop - Jules Environment Setup"
+echo " Riftop - Multi-Agent Environment Setup"
 echo "============================================================"
 
 if [ -d "${PROJECT_DIR}" ]; then
@@ -45,13 +45,12 @@ grep PRETTY_NAME /etc/os-release || true
 
 echo
 echo "Rust & Tools:"
-rustc --version || true
-cargo --version || true
-git --version || true
-pkg-config --version 2>/dev/null || true
+rustc --version
+cargo --version
+git --version
 
 echo
-echo "[3/8] Install/Verify native dependencies (libpcap-dev, pkg-config)"
+echo "[3/8] Verify Native Dependencies (libpcap-dev, pkg-config)"
 
 if command -v apt-get >/dev/null 2>&1; then
     if [[ "${EUID}" -eq 0 ]]; then
@@ -63,8 +62,8 @@ if command -v apt-get >/dev/null 2>&1; then
     fi
 
     if [[ -n "${APT}" ]]; then
-        ${APT} update || true
-        ${APT} install -y --no-install-recommends libpcap-dev pkg-config || true
+        ${APT} update
+        ${APT} install -y --no-install-recommends libpcap-dev pkg-config
     fi
 fi
 
@@ -78,8 +77,6 @@ echo "[4/8] Validate libpcap"
 
 if pkg-config --exists libpcap 2>/dev/null; then
     echo "libpcap version: $(pkg-config --modversion libpcap)"
-else
-    echo "pkg-config libpcap check bypassed/unavailable."
 fi
 
 echo
@@ -94,12 +91,7 @@ fi
 echo
 echo "[6/8] Check code compilation"
 
-if [[ -f Cargo.lock ]]; then
-    LIBRARY_PATH=/app/target/lib:/usr/lib/x86_64-linux-gnu cargo check --locked --all-targets --all-features || \
-    LIBRARY_PATH=/app/target/lib:/usr/lib/x86_64-linux-gnu cargo check --all-targets --all-features
-else
-    LIBRARY_PATH=/app/target/lib:/usr/lib/x86_64-linux-gnu cargo check --all-targets --all-features
-fi
+LIBRARY_PATH=/app/target/lib:/usr/lib/x86_64-linux-gnu cargo check --all-targets --all-features
 
 echo
 echo "[7/8] Compile test binaries"
@@ -113,5 +105,5 @@ LIBRARY_PATH=/app/target/lib:/usr/lib/x86_64-linux-gnu cargo test --all-targets 
 
 echo
 echo "============================================================"
-echo " RIFTOP JULES ENVIRONMENT: READY & VERIFIED"
+echo " RIFTOP ENVIRONMENT: READY & VERIFIED"
 echo "============================================================"

@@ -1,72 +1,18 @@
-# Riftop AI Development & Architectural Guide
+# Riftop Multi-Agent Architectural & Engineering Guide
 
-## Overview
+## Multi-Agent System Architecture
 
-`Riftop` is a high-performance network bandwidth monitoring tool written in Rust, built as an `iftop` replacement.
-It captures network frames in real-time or from PCAP recordings, decodes network protocols, computes exponential moving average and sliding window rates over 2s, 10s, and 40s intervals, and renders live TUI snapshots or structured exports (JSON, CSV, text).
+`Riftop` is designed as a multi-agent, agent-agnostic repository. It relies on a single canonical engineering contract in `AGENTS.md` and repository-local documentation under `docs/` rather than agent-specific prompt fragmentation.
 
----
-
-## Architecture Overview
-
-```text
-Capture (pcap / live)
-   │
-   ▼
-PacketDecoder (etherparse: Ethernet / SLL / SLL2 / RAW / IPv4 / IPv6 / TCP / UDP)
-   │
-   ▼
-PacketEvent
-   │
-   ├─► BPF / Network Filters
-   │
-   ▼
-FlowEngine (mpsc channel)
-   │
-   ▼
-FlowTable (Capacity MAX_FLOWS = 100,000)
-   │
-   ├─► RateWindows (2s, 10s, 40s)
-   ├─► Direction Accounting (Sent / Received / Unknown)
-   └─► Global Counters (seen, accepted, total bytes, sent bytes, recv bytes)
-   │
-   ▼
-Snapshot Engine
-   │
-   ├─► Top Hosts (`src/top.rs`)
-   ├─► Top Ports (`src/top.rs`)
-   ├─► Top Protocols (`src/top.rs`)
-   │
-   ▼
-TUI (`src/ui/mod.rs`) & Export (`src/export.rs`)
-```
+Supported agents (Jules, Codex, Claude Code, Gemini CLI, Copilot, Cursor, Cline, Amazon Q, Windsurf, Qwen, Kimi, Trae, Lingma) observe the same domain invariants and quality gates.
 
 ---
 
-## Core Domain Invariants & Guardrails
+## Domain Invariants & Technical Rules
 
-1. **Flow Identity (`FlowKey`) vs Presentation (`show_ports`)**
-   - `FlowKey` defines semantic network flow identity (`(src, dst, sport, dport, protocol)`).
-   - Presentation toggles like `--no-ports` MUST NOT mutate the underlying `FlowKey` or zero `protocol` in ways that collapse distinct protocols or corrupt Top Protocols aggregation.
-
-2. **Endpoint Byte Attribution (`bytes_a_to_b`, `bytes_b_to_a`)**
-   - Canonical ordering in `FlowKey::new` guarantees `a <= b`.
-   - `record_endpoints` attributes bytes from source `s` to destination `d`:
-     - Traffic from `a` to `b` increments `bytes_a_to_b`.
-     - Traffic from `b` to `a` increments `bytes_b_to_a`.
-   - Top Hosts and Top Ports MUST use `bytes_a_to_b` and `bytes_b_to_a` to attribute directional bytes without double-counting flow totals.
-
-3. **Direction Classification (`Direction`)**
-   - Live traffic classifies direction relative to local host interfaces (`Direction::Sent`, `Direction::Received`).
-   - Offline PCAP traffic without local interface information classifies direction explicitly as `Direction::Unknown` rather than fabricating local host identity.
-
-4. **Capacity Limits (`MAX_FLOWS = 100,000`)**
-   - Flow entry creation is capped at 100,000 active flows.
-   - Global counters MUST distinguish captured/seen traffic from traffic actually admitted and stored in `FlowTable`.
-
-5. **Rate Calculations (`RateWindow`)**
-   - Window rates over 2s, 10s, and 40s MUST compute `total_bytes / window_secs` over active sample buckets.
-
-6. **DNS Concurrency & Caching**
-   - DNS resolution uses a bounded worker pool to prevent thread explosion under high packet rates.
-   - Lookup states (`Resolving`, `Resolved`, `Negative`) prevent redundant queries on lookup failures.
+1. **Pure Safe Rust**: All codebase components MUST be written in safe Rust (`unsafe_code = "forbid"`).
+2. **Truth & Verification**: Test reports and claims MUST reflect actual executed results. Tautological assertions or silenced errors are forbidden.
+3. **Flow Identity (`FlowKey`)**: 5-tuple `(a, b, port_a, port_b, protocol)` identity remains distinct regardless of `--ports`/`--no-ports` presentation options.
+4. **Endpoint Rate & Byte Attribution**: Host and port rates/bytes are attributed directionally (`bytes_a_to_b` / `bytes_b_to_a`) to prevent double-counting flow totals.
+5. **Capacity Protection**: `FlowTable` caps entries at `MAX_FLOWS = 100,000` before incrementing accepted statistics.
+6. **Replay Clock & Locality**: Offline PCAP timestamps are relative to `pcap_start`, with `Direction::Unknown` when local interface IPs are unavailable.

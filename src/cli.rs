@@ -46,23 +46,23 @@ pub struct Args {
     #[arg(long = "screen-filter")]
     pub screen_filter: Option<String>,
 
-    #[arg(short = 't', long, default_value = "1000")]
-    pub interval_ms: u64,
+    #[arg(short = 't', long)]
+    pub interval_ms: Option<u64>,
 
-    #[arg(long, default_value = "20")]
-    pub lines: usize,
+    #[arg(long)]
+    pub lines: Option<usize>,
 
-    #[arg(long, value_enum, default_value = "10s")]
-    pub sort: SortColumn,
+    #[arg(long, value_enum)]
+    pub sort: Option<SortColumn>,
 
     #[arg(long = "pcap")]
     pub pcap_file: Option<String>,
 
-    #[arg(long = "output", default_value = "tui")]
-    pub output: String,
+    #[arg(long = "output")]
+    pub output: Option<String>,
 
-    #[arg(long = "aggregate", default_value = "pair")]
-    pub aggregate: String,
+    #[arg(long = "aggregate")]
+    pub aggregate: Option<String>,
 
     #[arg(long = "config")]
     pub config: Option<String>,

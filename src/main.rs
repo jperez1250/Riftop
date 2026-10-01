@@ -51,13 +51,13 @@ fn main() -> anyhow::Result<()> {
     }
 
     let mut cfg = Config::load(args.config.as_deref().map(Path::new)).context("config")?;
-    let sort_str = match args.sort {
+    let sort_str = args.sort.map(|s| match s {
         cli::SortColumn::Rate2s => "2s",
         cli::SortColumn::Rate10s => "10s",
         cli::SortColumn::Rate40s => "40s",
         cli::SortColumn::Source => "source",
         cli::SortColumn::Destination => "destination",
-    };
+    });
 
     cfg.apply_cli(
         &args.interface,
@@ -72,11 +72,11 @@ fn main() -> anyhow::Result<()> {
         args.no_bars,
         args.link_local,
         args.promiscuous,
-        Some(args.interval_ms),
-        Some(args.lines),
-        Some(&args.aggregate),
-        Some(sort_str),
-        Some(&args.output),
+        args.interval_ms,
+        args.lines,
+        args.aggregate.as_deref(),
+        sort_str,
+        args.output.as_deref(),
         args.alert_rate_bps,
         args.alert_pps,
     );

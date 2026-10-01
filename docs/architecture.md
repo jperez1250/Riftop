@@ -1,53 +1,52 @@
-# Architecture — Riftop (Rust)
+# Riftop Architecture & Domain Invariants
 
-## Module boundaries
+## Pipeline Architecture
 
+```text
+Capture (pcap / live)
+   │
+   ▼
+PacketDecoder (Ethernet / SLL / SLL2 / RAW / IPv4 / IPv6 / TCP / UDP)
+   │
+   ▼
+PacketEvent
+   │
+   ├─► BPF & Network Filters
+   │
+   ▼
+FlowEngine (mpsc channel)
+   │
+   ▼
+FlowTable (Capacity MAX_FLOWS = 100,000)
+   │
+   ├─► RateWindows (2s, 10s, 40s)
+   ├─► Direction Accounting (Sent / Received / Unknown)
+   └─► Global Counters (seen, accepted, total bytes, sent bytes, recv bytes)
+   │
+   ▼
+Snapshot Engine
+   │
+   ├─► Top Hosts (directional bytes_a_to_b / bytes_b_to_a)
+   ├─► Top Ports (directional port_a / port_b attribution)
+   ├─► Top Protocols (independent of presentation flags)
+   │
+   ▼
+TUI & Export (JSON with json_escape, CSV, Text)
 ```
-capture/     → open device or PCAP file; emit raw frames + timestamps
-protocols/   → decode Ethernet/IP/TCP/UDP; emit FlowEndpoints (no stats)
-stats/       → FlowTable, rate windows, direction, totals
-dns/         → optional reverse lookup cache (async, non-blocking)
-tui/         → rendering only; reads snapshots from stats
-app.rs       → wires modules; owns tick loop
-main.rs      → CLI + privilege boundary
-```
 
-Capture never imports TUI. TUI never opens pcap.
+## Domain Invariants
 
-## Data flow
+1. **Flow Identity (`FlowKey`) vs Presentation (`show_ports`)**
+   - Flow identity is a 5-tuple `(a, b, port_a, port_b, protocol)`.
+   - UI toggles like `--no-ports` MUST NOT mutate the underlying `FlowKey` protocol ID or merge distinct connections in `FlowTable`.
 
-```
-[live NIC / PCAP fixture]
-        │
-        ▼
-   capture::Source
-        │  PacketMeta { ts, bytes }
-        ▼
-   protocols::decode
-        │  Option<FlowEvent>
-        ▼
-   stats::FlowTable::record
-        │
-        ▼
-   snapshot ──► tui::draw
-```
+2. **Directional Accounting & Rates**
+   - Directional byte counters (`bytes_a_to_b`, `bytes_b_to_a`) attribute traffic from `a` to `b` vs `b` to `a`.
+   - Top Hosts and Top Ports attribute directional bytes and directional rates to prevent double-counting flow totals.
 
-## Privilege isolation
+3. **PCAP Replay Clock & Direction**
+   - Offline PCAP timestamps are computed relative to `pcap_start`.
+   - Direction is classified as `Direction::Unknown` when local interface addresses are absent.
 
-- Prefer `CAP_NET_RAW` / `CAP_NET_ADMIN` on the binary (setcap) over full root.
-- Offline PCAP mode requires **no** elevated privileges (used by all regression tests).
-
-## Tick model
-
-- Capture thread (or iterator for offline) feeds events.
-- UI / analysis tick every `interval_ms` (default 1000 ms, matching legacy RESOLUTION).
-- Rate windows: 2s / 10s / 40s sample ages (legacy history_divs × RESOLUTION).
-
-## Testing layers
-
-| Layer | Location | Privileges |
-|-------|----------|------------|
-| Unit (keys, rates, decode) | `src/**` `#[cfg(test)]` | none |
-| Integration | `tests/integration/` | none |
-| Regression vs fixtures | `tests/regression_*.rs` | none (PCAP only) |
-| Live capture smoke | manual / optional CI job | capabilities |
+4. **Capacity Enforcement (`MAX_FLOWS = 100,000`)**
+   - Flow admission is checked before incrementing accepted packet and total byte statistics.
