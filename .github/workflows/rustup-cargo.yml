@@ -1,0 +1,13 @@
+- name: rustup-cargo
+  # You may pin to the exact commit or the version.
+  # uses: wy414012/cargo@e3410c8d846a1126814b48019dbdb04865284afc
+  uses: wy414012/cargo@v1.1.1
+  with:
+    # Cargo command to run (ex. `check` or `build`)
+    command: 
+    # Toolchain to use (without the `+` sign, ex. `nightly`)
+    toolchain: # optional
+    # Arguments for the cargo command
+    args: # optional
+    # Use cross instead of cargo
+    use-cross: # optional
