@@ -1,0 +1,55 @@
+- name: Vale Linter
+  # You may pin to the exact commit or the version.
+  # uses: vale-cli/vale-action@518a9136acc6e6668ce7c00d367051e0941e87ff
+  uses: vale-cli/vale-action@v3.0.0
+  with:
+    # The Vale CLI version to install.
+    version: # optional, default is latest
+    # The files to lint: "all" or "<some_folder>".
+    files: # optional, default is all
+    # Run `vale sync` before linting [true,false].
+Set to `false` when the StylesPath is restored from a cache.
+
+    sync: # optional, default is true
+    # Log debugging information to stdout.
+    debug: # optional, default is false
+    # Reporter of reviewdog command [github-pr-check,github-pr-review,github-pr-annotations,github-check].
+    reporter: # optional, default is github-pr-annotations
+    # Exit code for reviewdog when errors are found [true,false]
+Default is `false`.
+
+    fail_on_error: # optional, default is false
+    # The severity at which reviewdog exits with `1`
+[none,any,info,warning,error]. Takes precedence over `fail_on_error`,
+and needs reviewdog 0.21.0 or later.
+
+    fail_level: # optional, default is 
+    # Report level for reviewdog [info,warning,error].
+Unset, the level follows `fail_on_error` and what Vale found.
+
+    level: # optional, default is 
+    # Filtering for the reviewdog command [added,diff_context,file,nofilter].
+Default is added.
+
+    filter_mode: # optional, default is added
+    # The directory to run Vale in.
+    workdir: # optional, default is .
+    # A path to a .vale.ini file.
+    config: # optional, default is 
+    # An expression to filter rules by, such as `.Level == "error"`.
+
+    filter: # optional, default is 
+    # A glob pattern, such as `*.{md,txt}`.
+    glob: # optional, default is 
+    # The minimum level to report [suggestion,warning,error].
+    min_alert_level: # optional, default is 
+    # Space-delimited list of flags for the Vale CLI.
+    vale_flags: # optional, default is 
+    # Split character for input strings.
+    separator: # optional, default is 
+    # The reviewdog version to install.
+    reviewdog_version: # optional, default is 0.21.0
+    # The URL to a tar.gz build of reviewdog to use in the action
+    reviewdog_url: # optional, default is 
+    # The GitHub token to use.
+    token: # optional, default is ${{ github.token }}
