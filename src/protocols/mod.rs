@@ -144,7 +144,7 @@ fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
                 actual_len,
             )
         }
-        None => return DecodeResult::Ignored,
+        _ => return DecodeResult::Ignored,
     };
 
     let (src_port, dst_port, tcp) = match sliced.transport {

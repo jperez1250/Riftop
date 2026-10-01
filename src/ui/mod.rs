@@ -313,14 +313,14 @@ fn draw_flows(f: &mut Frame<'_>, area: Rect, app: &App, snap: &Snapshot, now: In
         .map(|(i, stats)| {
             let a = app.dns.display(&stats.key.a, app.enable_dns);
             let b = app.dns.display(&stats.key.b, app.enable_dns);
-            let port_a_str = if app.no_port_resolution {
+            let service_a_str = if app.no_port_resolution {
                 stats.key.port_a.to_string()
             } else {
                 crate::services::service_name(stats.key.port_a, stats.key.protocol)
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| stats.key.port_a.to_string())
             };
-            let port_b_str = if app.no_port_resolution {
+            let service_b_str = if app.no_port_resolution {
                 stats.key.port_b.to_string()
             } else {
                 crate::services::service_name(stats.key.port_b, stats.key.protocol)
@@ -328,7 +328,7 @@ fn draw_flows(f: &mut Frame<'_>, area: Rect, app: &App, snap: &Snapshot, now: In
                     .unwrap_or_else(|| stats.key.port_b.to_string())
             };
             let pair = if app.show_ports {
-                format!("{a}:{port_a_str} \u{2194} {b}:{port_b_str}")
+                format!("{a}:{service_a_str} \u{2194} {b}:{service_b_str}")
             } else {
                 format!("{a} \u{2194} {b}")
             };
