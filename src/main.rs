@@ -1,5 +1,7 @@
 //! Riftop — modern iftop-style bandwidth monitor (Rust rewrite of legacy C).
 
+#![forbid(unsafe_code)]
+
 use riftop::alerts;
 use riftop::cli;
 use riftop::config;

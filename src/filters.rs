@@ -228,11 +228,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_v4_prefix() {
-        if let Ok(f) = NetFilterV4::parse("10.0.0.0/24") {
-            assert!(f.contains(Ipv4Addr::new(10, 0, 0, 5)));
-        } else {
-            panic!("failed to parse IPv4 CIDR");
-        }
+    fn parse_v4_prefix() -> Result<()> {
+        let f = NetFilterV4::parse("10.0.0.0/24")?;
+        assert!(f.contains(Ipv4Addr::new(10, 0, 0, 5)));
+        Ok(())
     }
 }
