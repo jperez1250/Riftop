@@ -49,7 +49,7 @@ where
     F: Fn(K) -> String,
 {
     let mut v: Vec<_> = map.into_iter().collect();
-    v.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+    v.sort_by_key(|a| std::cmp::Reverse(a.1 .0));
     v.into_iter()
         .take(n)
         .map(|(k, (bytes, r2, r10, r40))| TopRow {
