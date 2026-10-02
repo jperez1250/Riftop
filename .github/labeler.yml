@@ -1,0 +1,13 @@
+rust:
+  - 'src/**/*.rs'
+  - 'tests/**/*.rs'
+  - 'Cargo.toml'
+  - 'Cargo.lock'
+
+docs:
+  - 'README.md'
+  - 'AGENTS.md'
+  - 'docs/**/*'
+
+ci:
+  - '.github/**/*'
