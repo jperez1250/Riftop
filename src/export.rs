@@ -148,3 +148,62 @@ pub fn write_csv(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::flow::FlowTable;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn test_output_format_parse() {
+        assert_eq!(OutputFormat::parse("json"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("JSON"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("text"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("plain"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("csv"), OutputFormat::Csv);
+        assert_eq!(OutputFormat::parse("tui"), OutputFormat::Tui);
+        assert_eq!(OutputFormat::parse("other"), OutputFormat::Tui);
+    }
+
+    #[test]
+    fn test_json_escape_special_characters() {
+        assert_eq!(json_escape("hello"), "hello");
+        assert_eq!(json_escape("quote\"slash\\"), "quote\\\"slash\\\\");
+        assert_eq!(json_escape("line1\nline2\r\ttab"), "line1\\nline2\\r\\ttab");
+        assert_eq!(json_escape("\x01"), "\\u0001");
+    }
+
+    #[test]
+    fn test_export_writers() {
+        let mut table = FlowTable::new();
+        table.set_show_ports(true);
+        let now = Instant::now();
+        let ip_a: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let ip_b: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+        table.record(ip_a, ip_b, 1234, 80, 6, 1024, &[ip_a], now, None);
+
+        // JSON Export Test
+        let mut json_buf = Vec::new();
+        write_json(&mut json_buf, &table, now, 10, "eth0", SortBy::Rate2s).expect("json export");
+        let json_str = String::from_utf8(json_buf).expect("utf8 json");
+        assert!(json_str.contains("\"interface\":\"eth0\""));
+        assert!(json_str.contains("\"packets_seen\":1"));
+        assert!(json_str.contains("\"src\":\"10.0.0.1\""));
+
+        // Text Export Test
+        let mut text_buf = Vec::new();
+        write_text(&mut text_buf, &table, now, 10, SortBy::Rate2s, false).expect("text export");
+        let text_str = String::from_utf8(text_buf).expect("utf8 text");
+        assert!(text_str.contains("# packets_seen=1"));
+        assert!(text_str.contains("10.0.0.1"));
+
+        // CSV Export Test
+        let mut csv_buf = Vec::new();
+        write_csv(&mut csv_buf, &table, now, 10, SortBy::Rate2s, false).expect("csv export");
+        let csv_str = String::from_utf8(csv_buf).expect("utf8 csv");
+        assert!(csv_str.starts_with("src,dst,sport,dport,proto,sent,recv,total"));
+        assert!(csv_str.contains("10.0.0.1,10.0.0.2,1234,80,6,1024,0,1024"));
+    }
+}

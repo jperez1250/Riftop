@@ -99,3 +99,66 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::flow::{FlowTable, SortBy};
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_rate_and_pps() {
+        let config = AlertConfig {
+            rate_bps: Some(100.0),
+            pps: Some(10.0),
+        };
+        let mut engine = AlertEngine::new(config);
+        let now = Instant::now();
+
+        let mut table = FlowTable::new();
+        let ip_a: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let ip_b: IpAddr = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+        // Add traffic to flow
+        table.record(ip_a, ip_b, 1000, 80, 6, 2000, &[ip_a], now, None);
+
+        let snap1 = table.snapshot_sorted(10, now, SortBy::Rate10s);
+        engine.evaluate(&snap1, now);
+
+        // First PPS check sets `last_check` baseline
+        assert_eq!(engine.latest_messages(5).len(), 1); // 1 rate alert
+
+        let future = now + Duration::from_secs(1);
+        let mut snap2 = table.snapshot_sorted(10, future, SortBy::Rate10s);
+        snap2.globals.packets_accepted = 100; // 100 PPS delta over 1s
+
+        engine.evaluate(&snap2, future);
+        let msgs = engine.latest_messages(5);
+        assert!(msgs.iter().any(|m| m.contains("PPS")));
+    }
+
+    #[test]
+    fn test_alert_deduplication_and_pruning() {
+        let mut engine = AlertEngine::new(AlertConfig::default());
+        let now = Instant::now();
+
+        engine.push(Alert {
+            when: now,
+            message: "TEST ALERT 1".to_string(),
+        });
+        engine.push(Alert {
+            when: now,
+            message: "TEST ALERT 1".to_string(),
+        });
+        assert_eq!(engine.latest_messages(10).len(), 1);
+
+        for i in 0..30 {
+            engine.push(Alert {
+                when: now,
+                message: format!("ALERT {i}"),
+            });
+        }
+        assert_eq!(engine.recent().count(), 20); // max_keep is 20
+    }
+}
