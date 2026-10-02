@@ -1,33 +1,30 @@
-rust:
-  - 'src/**/*.rs'
-  - 'tests/**/*.rs'
-  - 'Cargo.toml'
-  - 'Cargo.lock'
+# Labeler configuration for GitHub Actions PR labeling
 
-capture:
-  - 'src/capture/**/*'
-
-config:
-  - 'src/config/**/*'
-
-dns:
-  - 'src/dns/**/*'
-
-flow:
+'area: flow':
   - 'src/flow/**/*'
 
-protocols:
-  - 'src/protocols/**/*'
+'area: capture':
+  - 'src/capture/**/*'
 
-top:
-  - 'src/top/**/*'
-
-ui:
+'area: ui':
   - 'src/ui/**/*'
 
-github-actions:
-  - '.github/**/*'
+'area: config':
+  - 'src/config/**/*'
 
-documentation:
+'area: dns':
+  - 'src/dns/**/*'
+
+'area: top':
+  - 'src/top/**/*'
+
+'area: tests':
+  - 'tests/**/*'
+
+'area: docs':
   - 'docs/**/*'
   - '*.md'
+
+'area: ci':
+  - '.github/**/*'
+  - 'scripts/**/*'

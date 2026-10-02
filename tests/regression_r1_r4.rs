@@ -87,16 +87,24 @@ fn materialize_fixture() -> PathBuf {
     pcap.extend_from_slice(&pcap_record(1_700_000_020, &garbage));
 
     let dir = std::env::temp_dir().join("riftop_fixtures");
-    std::fs::create_dir_all(&dir).expect("temp dir");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        panic!("failed to create temp dir: {e}");
+    }
     let path = dir.join("r1_r4_flows.pcap");
-    std::fs::write(&path, &pcap).expect("write pcap");
+    if let Err(e) = std::fs::write(&path, &pcap) {
+        panic!("failed to write pcap: {e}");
+    }
     path
 }
 
 #[test]
 fn r4_direction_from_local_address() {
-    let _guard = FIXTURE_LOCK.lock().unwrap();
-    let table = process_pcap_file(&materialize_fixture(), &[local_host()]).expect("process pcap");
+    let _guard = match FIXTURE_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let fixture = materialize_fixture();
+    let table = process_pcap_file(fixture, &[local_host()]).expect("process pcap");
     assert_eq!(table.len(), 1, "one bidirectional flow expected");
     let stats = table.top(1, Instant::now())[0];
     assert_eq!(stats.sent_bytes, 500, "R4: sent must be 5×100 from local");
@@ -106,8 +114,12 @@ fn r4_direction_from_local_address() {
 
 #[test]
 fn r4_direction_swaps_when_local_is_remote() {
-    let _guard = FIXTURE_LOCK.lock().unwrap();
-    let table = process_pcap_file(&materialize_fixture(), &[remote_host()]).expect("process pcap");
+    let _guard = match FIXTURE_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let fixture = materialize_fixture();
+    let table = process_pcap_file(fixture, &[remote_host()]).expect("process pcap");
     let stats = table.top(1, Instant::now())[0];
     assert_eq!(stats.sent_bytes, 600);
     assert_eq!(stats.recv_bytes, 500);
@@ -115,8 +127,12 @@ fn r4_direction_swaps_when_local_is_remote() {
 
 #[test]
 fn r2_single_flow_key_for_pair() {
-    let _guard = FIXTURE_LOCK.lock().unwrap();
-    let table = process_pcap_file(&materialize_fixture(), &[local_host()]).expect("process pcap");
+    let _guard = match FIXTURE_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let fixture = materialize_fixture();
+    let table = process_pcap_file(fixture, &[local_host()]).expect("process pcap");
     assert_eq!(table.len(), 1);
     let key = &table.top(1, Instant::now())[0].key;
     let expected = FlowKey::new(local_host(), remote_host(), 40000, 80, 6);
@@ -126,8 +142,12 @@ fn r2_single_flow_key_for_pair() {
 
 #[test]
 fn r6_non_ip_in_fixture_ignored() {
-    let _guard = FIXTURE_LOCK.lock().unwrap();
-    let table = process_pcap_file(&materialize_fixture(), &[local_host()]).expect("process pcap");
+    let _guard = match FIXTURE_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let fixture = materialize_fixture();
+    let table = process_pcap_file(fixture, &[local_host()]).expect("process pcap");
     assert_eq!(table.len(), 1);
     assert_eq!(decode_ethernet(&[0u8; 8]), DecodeResult::Ignored);
 }
@@ -174,8 +194,12 @@ fn r1_rate_windows_respect_sample_age() {
 
 #[test]
 fn r1_offline_pcap_totals_and_rates() {
-    let _guard = FIXTURE_LOCK.lock().unwrap();
-    let table = process_pcap_file(&materialize_fixture(), &[local_host()]).expect("process pcap");
+    let _guard = match FIXTURE_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let fixture = materialize_fixture();
+    let table = process_pcap_file(fixture, &[local_host()]).expect("process pcap");
     let at = Instant::now() + Duration::from_secs(5);
     let stats = table.top(1, at)[0];
     assert_eq!(stats.total_bytes, 1100);
