@@ -1,17 +1,33 @@
-# GitHub Actions PR Labeler Configuration
 rust:
-  - changed-files:
-      - any-glob-to-any-file: 'src/**/*.rs'
+  - 'src/**/*.rs'
+  - 'tests/**/*.rs'
+  - 'Cargo.toml'
+  - 'Cargo.lock'
 
-tests:
-  - changed-files:
-      - any-glob-to-any-file: 'tests/**/*.rs'
+capture:
+  - 'src/capture/**/*'
 
-docs:
-  - changed-files:
-      - any-glob-to-any-file: 'docs/**/*.md'
-      - any-glob-to-any-file: '*.md'
+config:
+  - 'src/config/**/*'
 
-ci:
-  - changed-files:
-      - any-glob-to-any-file: '.github/**/*'
+dns:
+  - 'src/dns/**/*'
+
+flow:
+  - 'src/flow/**/*'
+
+protocols:
+  - 'src/protocols/**/*'
+
+top:
+  - 'src/top/**/*'
+
+ui:
+  - 'src/ui/**/*'
+
+github-actions:
+  - '.github/**/*'
+
+documentation:
+  - 'docs/**/*'
+  - '*.md'
