@@ -1,0 +1,17 @@
+# GitHub Actions PR Labeler Configuration
+rust:
+  - changed-files:
+      - any-glob-to-any-file: 'src/**/*.rs'
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file: 'tests/**/*.rs'
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file: 'docs/**/*.md'
+      - any-glob-to-any-file: '*.md'
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: '.github/**/*'
