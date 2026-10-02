@@ -1,0 +1,33 @@
+rust:
+  - 'src/**/*.rs'
+  - 'tests/**/*.rs'
+  - 'Cargo.toml'
+  - 'Cargo.lock'
+
+capture:
+  - 'src/capture/**/*'
+
+config:
+  - 'src/config/**/*'
+
+dns:
+  - 'src/dns/**/*'
+
+flow:
+  - 'src/flow/**/*'
+
+protocols:
+  - 'src/protocols/**/*'
+
+top:
+  - 'src/top/**/*'
+
+ui:
+  - 'src/ui/**/*'
+
+github-actions:
+  - '.github/**/*'
+
+documentation:
+  - 'docs/**/*'
+  - '*.md'
