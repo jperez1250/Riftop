@@ -53,7 +53,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_sample() -> crate::error::Result<()> {
+    fn parse_sample() {
         let dir = std::env::temp_dir().join("riftop_cfg_test");
         let _ = std::fs::create_dir_all(&dir);
         let p = dir.join("t.toml");
@@ -67,12 +67,14 @@ alert_rate_bps = 125000000
 # comment
 "#,
         );
-        let c = parse_file(&p)?;
-        assert_eq!(c.interface.as_deref(), Some("eth0"));
-        assert_eq!(c.filter.as_deref(), Some("tcp port 443"));
-        assert!(c.ports);
-        assert_eq!(c.alert_rate_bps, Some(125_000_000.0));
+        if let Ok(c) = parse_file(&p) {
+            assert_eq!(c.interface.as_deref(), Some("eth0"));
+            assert_eq!(c.filter.as_deref(), Some("tcp port 443"));
+            assert!(c.ports);
+            assert_eq!(c.alert_rate_bps, Some(125_000_000.0));
+        } else {
+            panic!("failed to parse sample config file");
+        }
         let _ = std::fs::remove_file(&p);
-        Ok(())
     }
 }
