@@ -136,7 +136,7 @@ fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
                 h.payload().incomplete,
             )
         }
-        None => return DecodeResult::Ignored,
+        _ => return DecodeResult::Ignored,
     };
 
     let missing = if incomplete {
