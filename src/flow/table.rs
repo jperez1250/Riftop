@@ -125,10 +125,11 @@ impl FlowTable {
             Direction::Received => self.globals.bytes_recv += bytes,
             Direction::Unknown => {}
         }
+        // FlowKey implements Copy, avoiding .clone() heap/copy overhead on entry lookup.
         let entry = self
             .flows
-            .entry(key.clone())
-            .or_insert_with(|| FlowStats::new(key, now));
+            .entry(key)
+            .or_insert_with_key(|k| FlowStats::new(*k, now));
         entry.record_endpoints(now, src, sport, bytes);
         entry.record(now, bytes, dir, tcp);
     }
@@ -182,10 +183,11 @@ impl FlowTable {
                         Direction::Received => self.globals.bytes_recv += bytes,
                         Direction::Unknown => {}
                     }
+                    // FlowKey implements Copy, avoiding .clone() heap/copy overhead on entry lookup.
                     let entry = self
                         .flows
-                        .entry(key.clone())
-                        .or_insert_with(|| FlowStats::new(key, now));
+                        .entry(key)
+                        .or_insert_with_key(|k| FlowStats::new(*k, now));
                     entry.record_endpoints(now, src, sport, bytes);
                     entry.record(now, bytes, dir, tcp);
                     return true;

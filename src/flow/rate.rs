@@ -24,7 +24,11 @@ impl RateWindow {
         }
         self.samples.push((now, bytes));
         if let Some(cutoff) = now.checked_sub(self.max_age) {
-            self.samples.retain(|(ts, _)| *ts >= cutoff);
+            // Early exit: samples are sorted by timestamp. If the oldest sample is within cutoff,
+            // no samples need eviction, bypassing retain() vector iteration on every packet.
+            if self.samples.first().is_some_and(|(ts, _)| *ts < cutoff) {
+                self.samples.retain(|(ts, _)| *ts >= cutoff);
+            }
         }
     }
 
