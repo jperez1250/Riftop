@@ -1,17 +1,30 @@
-# GitHub Actions PR Labeler Configuration
-rust:
-  - changed-files:
-      - any-glob-to-any-file: 'src/**/*.rs'
+# Labeler configuration for GitHub Actions PR labeling
 
-tests:
-  - changed-files:
-      - any-glob-to-any-file: 'tests/**/*.rs'
+'area: flow':
+  - 'src/flow/**/*'
 
-docs:
-  - changed-files:
-      - any-glob-to-any-file: 'docs/**/*.md'
-      - any-glob-to-any-file: '*.md'
+'area: capture':
+  - 'src/capture/**/*'
 
-ci:
-  - changed-files:
-      - any-glob-to-any-file: '.github/**/*'
+'area: ui':
+  - 'src/ui/**/*'
+
+'area: config':
+  - 'src/config/**/*'
+
+'area: dns':
+  - 'src/dns/**/*'
+
+'area: top':
+  - 'src/top/**/*'
+
+'area: tests':
+  - 'tests/**/*'
+
+'area: docs':
+  - 'docs/**/*'
+  - '*.md'
+
+'area: ci':
+  - '.github/**/*'
+  - 'scripts/**/*'
