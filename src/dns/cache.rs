@@ -23,6 +23,18 @@ struct CacheEntry {
     inserted: Instant,
 }
 
+/// Sanitize DNS name by stripping control characters and bounding length to 253 chars (RFC 1035).
+#[must_use]
+pub fn sanitize_dns_name(name: &str) -> Option<String> {
+    let sanitized: String = name.chars().filter(|c| !c.is_control()).take(253).collect();
+    let trimmed = sanitized.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 /// Thread-safe reverse DNS cache with deduplicated pending request tracking and negative caching.
 #[derive(Debug)]
 pub struct DnsCache {
@@ -69,10 +81,11 @@ impl DnsCache {
         })
     }
 
-    /// Insert or refresh an entry.
+    /// Insert or refresh an entry, sanitizing untrusted DNS names.
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
-        let state = match name {
+        let sanitized = name.and_then(|n| sanitize_dns_name(&n));
+        let state = match sanitized {
             Some(n) => DnsState::Resolved(n),
             None => DnsState::Negative,
         };
@@ -111,5 +124,56 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_dns_name_valid() {
+        assert_eq!(
+            sanitize_dns_name("example.com"),
+            Some("example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_dns_name_strips_control_chars() {
+        assert_eq!(
+            sanitize_dns_name("example.com\x1b[2J\r\n"),
+            Some("example.com[2J".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_dns_name_bounds_length() {
+        let long_name = "a".repeat(300);
+        if let Some(sanitized) = sanitize_dns_name(&long_name) {
+            assert_eq!(sanitized.len(), 253);
+        } else {
+            panic!("should produce sanitized name");
+        }
+    }
+
+    #[test]
+    fn test_sanitize_dns_name_empty_or_control_only() {
+        assert_eq!(sanitize_dns_name("   "), None);
+        assert_eq!(sanitize_dns_name("\x00\x01\x1b"), None);
+    }
+
+    #[test]
+    fn test_cache_insert_sanitizes() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4));
+
+        cache.insert(ip, Some("evil.com\x1b[2J".to_string()));
+        assert_eq!(cache.get(&ip), Some("evil.com[2J".to_string()));
+
+        cache.insert(ip, Some("\x1b\x00\r\n".to_string()));
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), Some(DnsState::Negative));
     }
 }
