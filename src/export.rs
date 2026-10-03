@@ -148,3 +148,85 @@ pub fn write_csv(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::FlowTable;
+    use std::net::IpAddr;
+    use std::time::Instant;
+
+    #[test]
+    fn test_output_format_parse() {
+        assert_eq!(OutputFormat::parse("json"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("JSON"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("text"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("plain"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("csv"), OutputFormat::Csv);
+        assert_eq!(OutputFormat::parse("tui"), OutputFormat::Tui);
+        assert_eq!(OutputFormat::parse("unknown"), OutputFormat::Tui);
+    }
+
+    #[test]
+    fn test_json_escape_special_chars() {
+        assert_eq!(json_escape("hello"), "hello");
+        assert_eq!(
+            json_escape("quotes \"and\" \\slashes\\"),
+            "quotes \\\"and\\\" \\\\slashes\\\\"
+        );
+        assert_eq!(json_escape("line1\nline2\r\ttab"), "line1\\nline2\\r\\ttab");
+        assert_eq!(json_escape("\x07alert"), "\\u0007alert");
+    }
+
+    #[test]
+    fn test_write_json_rendering() {
+        let mut table = FlowTable::new();
+        let ip1: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip2: IpAddr = "10.0.0.2".parse().unwrap();
+        let now = Instant::now();
+
+        table.set_show_ports(true);
+        table.record(ip1, ip2, 1234, 80, 6, 100, &[ip1], now, None);
+
+        let mut buf = Vec::new();
+        write_json(&mut buf, &table, now, 10, "eth0", SortBy::Total).unwrap();
+        let json_str = String::from_utf8(buf).unwrap();
+
+        assert!(json_str.contains("\"interface\":\"eth0\""));
+        assert!(json_str.contains("\"packets_seen\":1"));
+        assert!(json_str.contains("\"packets_accepted\":1"));
+        assert!(json_str.contains("\"bytes_total\":100"));
+        assert!(json_str.contains("\"src\":\"10.0.0.1\""));
+        assert!(json_str.contains("\"dst\":\"10.0.0.2\""));
+        assert!(json_str.contains("\"sport\":1234"));
+        assert!(json_str.contains("\"dport\":80"));
+    }
+
+    #[test]
+    fn test_write_text_and_csv_rendering() {
+        let mut table = FlowTable::new();
+        let ip1: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip2: IpAddr = "10.0.0.2".parse().unwrap();
+        let now = Instant::now();
+
+        table.set_show_ports(true);
+        table.record(ip1, ip2, 1234, 80, 6, 2048, &[ip1], now, None);
+
+        // Text export
+        let mut text_buf = Vec::new();
+        write_text(&mut text_buf, &table, now, 10, SortBy::Total, true).unwrap();
+        let text_out = String::from_utf8(text_buf).unwrap();
+
+        assert!(text_out.contains("# packets_seen=1 accepted=1 bytes=2.00 KB flows=1"));
+        assert!(text_out.contains("10.0.0.1\t10.0.0.2"));
+
+        // CSV export
+        let mut csv_buf = Vec::new();
+        write_csv(&mut csv_buf, &table, now, 10, SortBy::Total, false).unwrap();
+        let csv_out = String::from_utf8(csv_buf).unwrap();
+
+        assert!(csv_out.contains("src,dst,sport,dport,proto,sent,recv,total,rate_2s_bits_sec,rate_10s_bits_sec,rate_40s_bits_sec"));
+        assert!(csv_out.contains("10.0.0.1,10.0.0.2,1234,80,6,2048,0,2048"));
+    }
+}
