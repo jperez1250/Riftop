@@ -1,9 +1,10 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::manual_repeat_n)]
+
 //! Exhaustive 50-test automated suite for Riftop.
 //!
 //! Covers: core API, config, CLI, packet decoding, linktypes, PCAP replay,
 //! flow tracking, direction, limits, rate windows, top statistics, exports,
 //! DNS caching, and end-to-end pipelines.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::manual_repeat_n)]
 
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
