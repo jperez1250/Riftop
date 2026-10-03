@@ -1,4 +1,5 @@
 //! Regression tests for network filters.
+#![allow(clippy::unwrap_used)]
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;

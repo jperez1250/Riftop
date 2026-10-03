@@ -1,4 +1,5 @@
 //! Regression R1 (rate windows) and R4 (direction from local address).
+#![allow(clippy::manual_repeat_n, clippy::expect_used)]
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;

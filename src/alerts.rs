@@ -99,3 +99,64 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::FlowTable;
+    use std::net::IpAddr;
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_rate_and_pps_thresholds() {
+        let config = AlertConfig {
+            rate_bps: Some(100.0),
+            pps: Some(10.0),
+        };
+        let mut engine = AlertEngine::new(config);
+        let now = Instant::now();
+
+        let mut table = FlowTable::new();
+        let ip1: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip2: IpAddr = "10.0.0.2".parse().unwrap();
+
+        // Initial snapshot at t0
+        table.record(ip1, ip2, 1234, 80, 6, 2000, &[ip1], now, None);
+        let snap1 = table.snapshot(10, now);
+
+        // Evaluate t0
+        engine.evaluate(&snap1, now);
+        let msgs = engine.latest_messages(5);
+        assert!(!msgs.is_empty());
+        assert!(msgs[0].contains("RATE 10.0.0.1"));
+
+        // Evaluate t1 (1 sec later, 20 accepted packets delta = 20 pps > 10 pps limit)
+        let later = now + Duration::from_secs(1);
+        for _ in 0..20 {
+            table.record(ip1, ip2, 1234, 80, 6, 100, &[ip1], later, None);
+        }
+        let snap2 = table.snapshot(10, later);
+        engine.evaluate(&snap2, later);
+
+        let msgs2 = engine.latest_messages(5);
+        assert!(msgs2.iter().any(|m| m.contains("PPS 20 >= 10")));
+    }
+
+    #[test]
+    fn test_alert_deduplication() {
+        let mut engine = AlertEngine::new(AlertConfig::default());
+        let now = Instant::now();
+
+        engine.push(Alert {
+            when: now,
+            message: "Test Alert".to_string(),
+        });
+        engine.push(Alert {
+            when: now,
+            message: "Test Alert".to_string(),
+        });
+
+        assert_eq!(engine.latest_messages(10).len(), 1);
+    }
+}
