@@ -10,6 +10,11 @@ use crate::dns::worker::WorkerPool;
 const CACHE_TTL: Duration = Duration::from_secs(300);
 const NEGATIVE_TTL: Duration = Duration::from_secs(60);
 
+/// Sanitize hostname by stripping ASCII control characters and bounding length to 253 characters (RFC 1035).
+pub fn sanitize_hostname(name: &str) -> String {
+    name.chars().filter(|c| !c.is_control()).take(253).collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DnsState {
     Resolving,
@@ -73,7 +78,7 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => DnsState::Resolved(sanitize_hostname(&n)),
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +116,35 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_hostname_strips_control_chars() {
+        let input = "host\x00\x07\r\n\t.example.com";
+        let sanitized = sanitize_hostname(input);
+        assert_eq!(sanitized, "host.example.com");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_truncates_long_names() {
+        let long_name = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_name);
+        assert_eq!(sanitized.len(), 253);
+        assert_eq!(sanitized, "a".repeat(253));
+    }
+
+    #[test]
+    fn test_dns_cache_insert_sanitizes() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10));
+        let malicious_name = "bad\x07host\x1b.com";
+        cache.insert(ip, Some(malicious_name.to_string()));
+        assert_eq!(cache.get(&ip), Some("badhost.com".to_string()));
     }
 }
