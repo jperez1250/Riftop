@@ -103,12 +103,21 @@ impl FlowTable {
             self.aggregate,
             self.show_ports,
         );
-        if !self.flows.contains_key(&key) && self.flows.len() >= MAX_FLOWS {
-            self.expire(now, Duration::from_secs(30));
+        // Perf: 1 lookup fast path for existing flows (99.9%+ of packets), avoiding key clones.
+        let entry = if let Some(entry) = self.flows.get_mut(&key) {
+            entry
+        } else {
             if self.flows.len() >= MAX_FLOWS {
-                return;
+                self.expire(now, Duration::from_secs(30));
+                if self.flows.len() >= MAX_FLOWS {
+                    return;
+                }
             }
-        }
+            self.flows
+                .entry(key)
+                .or_insert_with_key(|k| FlowStats::new(k.clone(), now))
+        };
+
         self.globals.packets_accepted += 1;
         self.globals.bytes_total += bytes;
         let dir = if local_addrs.is_empty() {
@@ -125,10 +134,6 @@ impl FlowTable {
             Direction::Received => self.globals.bytes_recv += bytes,
             Direction::Unknown => {}
         }
-        let entry = self
-            .flows
-            .entry(key.clone())
-            .or_insert_with(|| FlowStats::new(key, now));
         entry.record_endpoints(now, src, sport, bytes);
         entry.record(now, bytes, dir, tcp);
     }
@@ -164,12 +169,20 @@ impl FlowTable {
                         self.aggregate,
                         self.show_ports,
                     );
-                    if !self.flows.contains_key(&key) && self.flows.len() >= MAX_FLOWS {
-                        self.expire(now, Duration::from_secs(30));
+                    // Perf: 1 lookup fast path for existing flows (99.9%+ of packets), avoiding key clones.
+                    let entry = if let Some(entry) = self.flows.get_mut(&key) {
+                        entry
+                    } else {
                         if self.flows.len() >= MAX_FLOWS {
-                            return true;
+                            self.expire(now, Duration::from_secs(30));
+                            if self.flows.len() >= MAX_FLOWS {
+                                return true;
+                            }
                         }
-                    }
+                        self.flows
+                            .entry(key)
+                            .or_insert_with_key(|k| FlowStats::new(k.clone(), now))
+                    };
                     self.globals.packets_accepted += 1;
                     self.globals.bytes_total += bytes;
                     let dir = if sent {
@@ -182,10 +195,6 @@ impl FlowTable {
                         Direction::Received => self.globals.bytes_recv += bytes,
                         Direction::Unknown => {}
                     }
-                    let entry = self
-                        .flows
-                        .entry(key.clone())
-                        .or_insert_with(|| FlowStats::new(key, now));
                     entry.record_endpoints(now, src, sport, bytes);
                     entry.record(now, bytes, dir, tcp);
                     return true;
