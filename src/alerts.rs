@@ -61,7 +61,7 @@ impl AlertEngine {
         if let Some(pps_lim) = self.config.pps {
             let pkts = snap.globals.packets_accepted;
             if let Some(prev) = self.last_check {
-                let dt = now.duration_since(prev).as_secs_f64().max(0.001);
+                let dt = now.saturating_duration_since(prev).as_secs_f64().max(0.001);
                 let delta = pkts.saturating_sub(self.last_pkt_count) as f64;
                 let pps = delta / dt;
                 if pps >= pps_lim {
@@ -97,5 +97,109 @@ impl AlertEngine {
             .take(n)
             .map(|a| a.message.clone())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::flow::{FlowKey, FlowStats, Globals};
+    use std::net::Ipv4Addr;
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_rate_and_pps() {
+        let config = AlertConfig {
+            rate_bps: Some(100.0),
+            pps: Some(50.0),
+        };
+        let mut engine = AlertEngine::new(config);
+        let start = Instant::now();
+
+        let mut snap = Snapshot {
+            flows: vec![],
+            globals: Globals {
+                packets_seen: 100,
+                packets_accepted: 100,
+                bytes_total: 1000,
+                bytes_sent: 500,
+                bytes_recv: 500,
+            },
+            taken_at: start,
+        };
+
+        // First check initializes last_check and last_pkt_count
+        engine.evaluate(&snap, start);
+        assert_eq!(engine.latest_messages(10).len(), 0);
+
+        // Advance time by 1s and add 100 packets -> PPS = 100 >= 50 threshold
+        let now = start + Duration::from_secs(1);
+        snap.globals.packets_accepted = 200;
+
+        let key = FlowKey::new(
+            Ipv4Addr::new(10, 0, 0, 1).into(),
+            Ipv4Addr::new(10, 0, 0, 2).into(),
+            1234,
+            80,
+            6,
+        );
+        let mut flow = FlowStats::new(key, start);
+        // Add 2000 bytes over 1 second so rate_10s > 100 bps
+        flow.record(now, 2000, crate::flow::Direction::Sent, None);
+        snap.flows.push(flow);
+
+        engine.evaluate(&snap, now);
+        let msgs = engine.latest_messages(10);
+        assert_eq!(msgs.len(), 2);
+        assert!(msgs.iter().any(|m| m.contains("PPS")));
+        assert!(msgs.iter().any(|m| m.contains("RATE")));
+    }
+
+    #[test]
+    fn test_alert_deduplication_and_max_keep() {
+        let mut engine = AlertEngine::new(AlertConfig::default());
+        let now = Instant::now();
+
+        // Fill engine with 25 distinct alerts (max_keep = 20)
+        for i in 0..25 {
+            engine.push(Alert {
+                when: now,
+                message: format!("Alert #{i}"),
+            });
+        }
+        assert_eq!(engine.recent().count(), 20);
+
+        // Try pushing duplicate message
+        let latest = engine.latest_messages(1)[0].clone();
+        engine.push(Alert {
+            when: now,
+            message: latest,
+        });
+        assert_eq!(engine.recent().count(), 20);
+    }
+
+    #[test]
+    fn test_alert_engine_regressing_timestamp_no_panic() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: None,
+            pps: Some(10.0),
+        });
+        let t1 = Instant::now();
+        let t2 = t1 + Duration::from_secs(5);
+
+        let mut snap = Snapshot {
+            flows: vec![],
+            globals: Globals {
+                packets_accepted: 100,
+                ..Default::default()
+            },
+            taken_at: t2,
+        };
+
+        engine.evaluate(&snap, t2);
+
+        // Regressing timestamp (t1 < t2)
+        snap.globals.packets_accepted = 500;
+        engine.evaluate(&snap, t1); // Should use saturating_duration_since and not panic
     }
 }

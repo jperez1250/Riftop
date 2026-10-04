@@ -148,3 +148,60 @@ pub fn write_csv(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_output_format_parse() {
+        assert_eq!(OutputFormat::parse("JSON"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("text"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("plain"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("csv"), OutputFormat::Csv);
+        assert_eq!(OutputFormat::parse("unknown"), OutputFormat::Tui);
+    }
+
+    #[test]
+    fn test_json_escape_special_chars() {
+        let raw = "Hello \"World\"\n\r\t\\ \x07";
+        let escaped = json_escape(raw);
+        assert_eq!(escaped, "Hello \\\"World\\\"\\n\\r\\t\\\\ \\u0007");
+    }
+
+    #[test]
+    fn test_exporters_with_flow_table() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let src = Ipv4Addr::new(192, 168, 1, 10).into();
+        let dst = Ipv4Addr::new(10, 0, 0, 1).into();
+
+        table.set_show_ports(true);
+        table.record(src, dst, 12345, 80, 6, 1500, &[src], now, None);
+
+        // Test JSON exporter
+        let mut json_buf = Vec::new();
+        write_json(&mut json_buf, &table, now, 10, "eth0", SortBy::Rate10s).unwrap();
+        let json_str = String::from_utf8(json_buf).unwrap();
+        assert!(json_str.contains("\"interface\":\"eth0\""));
+        assert!(json_str.contains("\"packets_seen\":1"));
+        assert!(json_str.contains("\"bytes_total\":1500"));
+        assert!(json_str.contains("192.168.1.10"));
+
+        // Test Text exporter
+        let mut text_buf = Vec::new();
+        write_text(&mut text_buf, &table, now, 10, SortBy::Total, true).unwrap();
+        let text_str = String::from_utf8(text_buf).unwrap();
+        assert!(text_str.contains("# packets_seen=1"));
+        assert!(text_str.contains("192.168.1.10"));
+
+        // Test CSV exporter
+        let mut csv_buf = Vec::new();
+        write_csv(&mut csv_buf, &table, now, 10, SortBy::Rate2s, false).unwrap();
+        let csv_str = String::from_utf8(csv_buf).unwrap();
+        assert!(csv_str.contains("src,dst,sport,dport,proto,sent,recv,total,rate_2s_bits_sec"));
+        assert!(csv_str.contains("10.0.0.1,192.168.1.10,80,12345,6,1500,0,1500"));
+    }
+}

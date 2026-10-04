@@ -224,6 +224,7 @@ pub fn bpf_expression(user: Option<&str>) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -234,5 +235,50 @@ mod tests {
         } else {
             panic!("failed to parse IPv4 CIDR");
         }
+    }
+
+    #[test]
+    fn test_invalid_netfilter_v4_strings() {
+        assert!(NetFilterV4::parse("10.0.0.0").is_err()); // missing mask/slash
+        assert!(NetFilterV4::parse("invalid/24").is_err()); // invalid IP
+        assert!(NetFilterV4::parse("10.0.0.0/33").is_err()); // prefix length > 32
+        assert!(NetFilterV4::parse("10.0.0.0/invalid").is_err()); // invalid mask
+    }
+
+    #[test]
+    fn test_invalid_netfilter_v6_strings() {
+        assert!(NetFilterV6::parse("2001:db8::").is_err()); // missing mask/slash
+        assert!(NetFilterV6::parse("invalid/64").is_err()); // invalid IPv6
+        assert!(NetFilterV6::parse("2001:db8::/129").is_err()); // prefix length > 128
+        assert!(NetFilterV6::parse("2001:db8::/invalid").is_err()); // invalid mask
+    }
+
+    #[test]
+    fn test_netfilter_v6_classification() {
+        let f = NetFilterV6::parse("2001:db8::/64").unwrap();
+        let in_net = Ipv6Addr::from_str("2001:db8::1").unwrap();
+        let out_net = Ipv6Addr::from_str("2001:db9::1").unwrap();
+
+        assert_eq!(f.classify(in_net, out_net), NetDirection::Out);
+        assert_eq!(f.classify(out_net, in_net), NetDirection::In);
+        assert_eq!(f.classify(in_net, in_net), NetDirection::Drop);
+        assert_eq!(f.classify(out_net, out_net), NetDirection::Drop);
+    }
+
+    #[test]
+    fn test_screen_filter_functionality() {
+        let mut sf = ScreenFilter::new(Some("GW".into()));
+        assert!(sf.is_active());
+        assert!(sf.matches("gw-router.local", "10.0.0.1"));
+        assert!(sf.matches("10.0.0.1", "gw-01.com"));
+        assert!(!sf.matches("host.local", "10.0.0.1"));
+
+        sf.set(None);
+        assert!(!sf.is_active());
+        assert!(sf.matches("anything", "whatever"));
+
+        sf.set(Some("".into()));
+        assert!(!sf.is_active());
+        assert!(sf.matches("anything", "whatever"));
     }
 }

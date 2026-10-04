@@ -113,3 +113,40 @@ impl DnsCache {
         ip.to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_dns_cache_insert_get_display() {
+        let cache = DnsCache::new();
+        let ip: IpAddr = Ipv4Addr::new(8, 8, 8, 8).into();
+
+        assert_eq!(cache.display(&ip, false), "8.8.8.8");
+        assert_eq!(cache.display(&ip, true), "8.8.8.8");
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), None);
+
+        cache.insert(ip, Some("dns.google".into()));
+        assert_eq!(cache.get(&ip), Some("dns.google".into()));
+        assert_eq!(
+            cache.state(&ip),
+            Some(DnsState::Resolved("dns.google".into()))
+        );
+        assert_eq!(cache.display(&ip, true), "dns.google");
+        assert_eq!(cache.display(&ip, false), "8.8.8.8");
+    }
+
+    #[test]
+    fn test_dns_cache_negative_entry() {
+        let cache = DnsCache::new();
+        let ip: IpAddr = Ipv4Addr::new(192, 0, 2, 1).into();
+
+        cache.insert(ip, None);
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), Some(DnsState::Negative));
+        assert_eq!(cache.display(&ip, true), "192.0.2.1");
+    }
+}
