@@ -61,7 +61,7 @@ impl AlertEngine {
         if let Some(pps_lim) = self.config.pps {
             let pkts = snap.globals.packets_accepted;
             if let Some(prev) = self.last_check {
-                let dt = now.duration_since(prev).as_secs_f64().max(0.001);
+                let dt = now.saturating_duration_since(prev).as_secs_f64().max(0.001);
                 let delta = pkts.saturating_sub(self.last_pkt_count) as f64;
                 let pps = delta / dt;
                 if pps >= pps_lim {
@@ -97,5 +97,39 @@ impl AlertEngine {
             .take(n)
             .map(|a| a.message.clone())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::flow::Globals;
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_evaluate_past_now_does_not_panic() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: None,
+            pps: Some(100.0),
+        });
+
+        let snap = Snapshot {
+            flows: vec![],
+            globals: Globals {
+                packets_seen: 10,
+                packets_accepted: 10,
+                bytes_total: 1000,
+                bytes_sent: 500,
+                bytes_recv: 500,
+            },
+            taken_at: Instant::now(),
+        };
+
+        let t0 = Instant::now();
+        let t1 = t0 + Duration::from_secs(10);
+
+        engine.evaluate(&snap, t1);
+        // Evaluating with a time `t0` in the past relative to `t1` (last_check) should not panic
+        engine.evaluate(&snap, t0);
     }
 }
