@@ -10,6 +10,19 @@ use crate::dns::worker::WorkerPool;
 const CACHE_TTL: Duration = Duration::from_secs(300);
 const NEGATIVE_TTL: Duration = Duration::from_secs(60);
 
+/// Sanitize a domain hostname by stripping control characters, limiting length to 253 (RFC 1035),
+/// trimming whitespace, and returning `None` if the sanitized result is empty.
+#[must_use]
+pub fn sanitize_hostname(name: &str) -> Option<String> {
+    let clean: String = name.chars().filter(|c| !c.is_control()).take(253).collect();
+    let trimmed = clean.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DnsState {
     Resolving,
@@ -69,10 +82,10 @@ impl DnsCache {
         })
     }
 
-    /// Insert or refresh an entry.
+    /// Insert or refresh an entry, sanitizing the hostname.
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
-        let state = match name {
+        let state = match name.and_then(|n| sanitize_hostname(&n)) {
             Some(n) => DnsState::Resolved(n),
             None => DnsState::Negative,
         };
@@ -111,5 +124,44 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_hostname() {
+        assert_eq!(sanitize_hostname("example.com"), Some("example.com".into()));
+        assert_eq!(
+            sanitize_hostname("  example.com  \n"),
+            Some("example.com".into())
+        );
+        assert_eq!(
+            sanitize_hostname("host\x1b[31m.local\x00"),
+            Some("host[31m.local".into())
+        );
+        assert_eq!(sanitize_hostname("\n\r\t\0"), None);
+
+        let overlong = "a".repeat(300);
+        assert_eq!(sanitize_hostname(&overlong), Some("a".repeat(253)));
+    }
+
+    #[test]
+    fn test_cache_insert_sanitization() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10));
+
+        // Unsafe control char hostname gets sanitized upon insertion
+        cache.insert(ip, Some("bad\nhost.com\x00".into()));
+        assert_eq!(cache.get(&ip), Some("badhost.com".into()));
+
+        // Control-only hostname results in negative caching
+        let ip2 = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 11));
+        cache.insert(ip2, Some("\x00\n\r".into()));
+        assert_eq!(cache.get(&ip2), None);
+        assert_eq!(cache.state(&ip2), Some(DnsState::Negative));
     }
 }
