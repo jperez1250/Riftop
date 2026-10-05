@@ -40,7 +40,7 @@ impl RateWindow {
             })
             .map(|(_, b)| *b)
             .sum();
-        if total == 0 {
+        if total == 0 || self.max_age.is_zero() {
             return 0.0;
         }
         total as f64 / self.max_age.as_secs_f64()

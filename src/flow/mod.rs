@@ -85,7 +85,7 @@ pub fn format_duration(d: Duration) -> String {
 
 #[must_use]
 pub fn rate_bar(rate: f64, max_rate: f64, width: usize) -> String {
-    if width == 0 || max_rate <= 0.0 || rate <= 0.0 {
+    if width == 0 || max_rate <= 0.0 || rate <= 0.0 || rate.is_nan() || max_rate.is_nan() {
         return " ".repeat(width);
     }
     let frac = (rate / max_rate).clamp(0.0, 1.0);
