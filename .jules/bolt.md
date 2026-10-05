@@ -1,0 +1,3 @@
+## 2025-05-18 - Copy Derive on Hash Keys and Partial Sorting in Top Views
+**Learning:** `FlowKey` only contains `Copy` primitives (`IpAddr`, `u16`, `u8`), so deriving `Copy` eliminates `.clone()` function call overhead when recording flow map entries. Additionally, using `select_nth_unstable_by` for top-N ranking reduces $O(N \log N)$ full sorts down to $O(N + n \log n)$ partial sorts while avoiding secondary `Vec` allocations via in-place truncation.
+**Action:** Always check if small key structs can derive `Copy` to avoid unnecessary cloning in hot packet processing loops, and prefer `select_nth_unstable_by` with in-place vector truncation when taking top-N elements from collections.

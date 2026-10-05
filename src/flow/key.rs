@@ -8,7 +8,8 @@ pub enum Aggregate {
     Destination,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+// Deriving Copy enables zero-cost bitwise stack copying and avoids allocations or .clone() overhead in packet hot paths
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct FlowKey {
     pub a: IpAddr,
     pub b: IpAddr,
