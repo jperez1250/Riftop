@@ -13,7 +13,7 @@ categories = ["command-line-utilities", "network-programming"]
 anyhow = "1.0"
 clap = { version = "4.4", features = ["derive"] }
 crossterm = "0.27"
-dns-lookup = "2.0"
+dns-lookup = "4.0"
 etherparse = "0.14"
 pcap = "1.3"
 ratatui = "0.26"
