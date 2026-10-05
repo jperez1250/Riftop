@@ -127,7 +127,7 @@ impl FlowTable {
         }
         let entry = self
             .flows
-            .entry(key.clone())
+            .entry(key)
             .or_insert_with(|| FlowStats::new(key, now));
         entry.record_endpoints(now, src, sport, bytes);
         entry.record(now, bytes, dir, tcp);
@@ -184,7 +184,7 @@ impl FlowTable {
                     }
                     let entry = self
                         .flows
-                        .entry(key.clone())
+                        .entry(key)
                         .or_insert_with(|| FlowStats::new(key, now));
                     entry.record_endpoints(now, src, sport, bytes);
                     entry.record(now, bytes, dir, tcp);
@@ -212,16 +212,28 @@ impl FlowTable {
     }
 
     pub fn top_sorted(&self, n: usize, now: Instant, sort: SortBy) -> Vec<&FlowStats> {
+        if n == 0 {
+            return Vec::new();
+        }
         let mut list: Vec<&FlowStats> = self.flows.values().collect();
-        list.sort_by(|a, b| match sort {
+        let cmp = |a: &&FlowStats, b: &&FlowStats| match sort {
             SortBy::Rate2s => rate_ord(a.rate_2s(now), b.rate_2s(now)),
             SortBy::Rate10s => rate_ord(a.rate_10s(now), b.rate_10s(now)),
             SortBy::Rate40s => rate_ord(a.rate_40s(now), b.rate_40s(now)),
             SortBy::Total => b.total_bytes.cmp(&a.total_bytes),
             SortBy::Source => a.key.a.cmp(&b.key.a),
             SortBy::Destination => a.key.b.cmp(&b.key.b),
-        });
-        list.into_iter().take(n).collect()
+        };
+        // Optimization: Use select_nth_unstable_by for O(N + n log n) partial sort instead of O(N log N) full sort,
+        // and truncate in-place to avoid secondary Vec allocation.
+        if n < list.len() {
+            list.select_nth_unstable_by(n - 1, cmp);
+            list[..n].sort_by(cmp);
+            list.truncate(n);
+        } else {
+            list.sort_by(cmp);
+        }
+        list
     }
 
     pub fn snapshot(&self, n: usize, now: Instant) -> Snapshot {
