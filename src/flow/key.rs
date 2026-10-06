@@ -8,7 +8,8 @@ pub enum Aggregate {
     Destination,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+// `FlowKey` derives `Copy` to enable zero-cost pass-by-value into HashMap lookup/entry routines without `.clone()` allocations in hot loops.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct FlowKey {
     pub a: IpAddr,
     pub b: IpAddr,

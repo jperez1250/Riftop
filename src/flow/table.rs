@@ -127,7 +127,7 @@ impl FlowTable {
         }
         let entry = self
             .flows
-            .entry(key.clone())
+            .entry(key)
             .or_insert_with(|| FlowStats::new(key, now));
         entry.record_endpoints(now, src, sport, bytes);
         entry.record(now, bytes, dir, tcp);
@@ -184,7 +184,7 @@ impl FlowTable {
                     }
                     let entry = self
                         .flows
-                        .entry(key.clone())
+                        .entry(key)
                         .or_insert_with(|| FlowStats::new(key, now));
                     entry.record_endpoints(now, src, sport, bytes);
                     entry.record(now, bytes, dir, tcp);
