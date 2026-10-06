@@ -72,3 +72,41 @@ pub fn format_top_row(row: &TopRow) -> (String, String, String, String, String) 
         format_bytes(row.bytes),
     )
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_view_mode_cycle_and_title() {
+        let mode = ViewMode::Flows;
+        assert_eq!(mode.title(), "Top flows");
+        let mode = mode.cycle();
+        assert_eq!(mode, ViewMode::Hosts);
+        assert_eq!(mode.title(), "Top hosts");
+        let mode = mode.cycle();
+        assert_eq!(mode, ViewMode::Ports);
+        assert_eq!(mode.title(), "Top ports");
+        let mode = mode.cycle();
+        assert_eq!(mode, ViewMode::Protocols);
+        assert_eq!(mode.title(), "Top protocols");
+        let mode = mode.cycle();
+        assert_eq!(mode, ViewMode::Flows);
+    }
+
+    #[test]
+    fn test_format_top_row() {
+        let row = TopRow {
+            label: "10.0.0.1".to_string(),
+            bytes: 1048576,
+            rate_2s: 1000.0,
+            rate_10s: 500.0,
+            rate_40s: 250.0,
+        };
+
+        let formatted = format_top_row(&row);
+        assert_eq!(formatted.0, "10.0.0.1");
+        assert_eq!(formatted.4, "1.00 MB");
+    }
+}

@@ -224,6 +224,7 @@ pub fn bpf_expression(user: Option<&str>) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -234,5 +235,90 @@ mod tests {
         } else {
             panic!("failed to parse IPv4 CIDR");
         }
+    }
+
+    #[test]
+    fn test_net_filter_v4_invalid_and_boundary() {
+        assert!(NetFilterV4::parse("invalid").is_err());
+        assert!(NetFilterV4::parse("10.0.0.1/33").is_err());
+        assert!(NetFilterV4::parse("invalid/24").is_err());
+        assert!(NetFilterV4::parse("10.0.0.1/invalid_mask").is_err());
+
+        let f_mask = NetFilterV4::parse("192.168.1.0/255.255.255.0").expect("valid cidr");
+        assert_eq!(f_mask.mask, Ipv4Addr::new(255, 255, 255, 0));
+        assert!(f_mask.contains(Ipv4Addr::new(192, 168, 1, 100)));
+        assert!(!f_mask.contains(Ipv4Addr::new(192, 168, 2, 100)));
+
+        assert_eq!(
+            f_mask.classify(Ipv4Addr::new(192, 168, 1, 10), Ipv4Addr::new(8, 8, 8, 8)),
+            NetDirection::Out
+        );
+        assert_eq!(
+            f_mask.classify(Ipv4Addr::new(8, 8, 8, 8), Ipv4Addr::new(192, 168, 1, 10)),
+            NetDirection::In
+        );
+        assert_eq!(
+            f_mask.classify(
+                Ipv4Addr::new(192, 168, 1, 10),
+                Ipv4Addr::new(192, 168, 1, 20)
+            ),
+            NetDirection::Drop
+        );
+    }
+
+    #[test]
+    fn test_net_filter_v6_parsing_and_classification() {
+        assert!(NetFilterV6::parse("invalid_v6").is_err());
+        assert!(NetFilterV6::parse("2001:db8::/129").is_err());
+
+        let f = NetFilterV6::parse("2001:db8::/32").expect("valid ipv6 cidr");
+        let in_net: Ipv6Addr = "2001:db8::1".parse().expect("valid ipv6");
+        let out_net: Ipv6Addr = "2607:f8b0::1".parse().expect("valid ipv6");
+
+        assert!(f.contains(in_net));
+        assert!(!f.contains(out_net));
+
+        assert_eq!(f.classify(in_net, out_net), NetDirection::Out);
+        assert_eq!(f.classify(out_net, in_net), NetDirection::In);
+        assert_eq!(f.classify(in_net, in_net), NetDirection::Drop);
+    }
+
+    #[test]
+    fn test_packet_filter_accept_and_link_local() {
+        let pf = PacketFilter::from_options(Some("10.0.0.0/8"), Some("2001:db8::/32"), false)
+            .expect("valid options");
+
+        let v4_local: IpAddr = "10.0.0.5".parse().expect("valid ip");
+        let v4_remote: IpAddr = "1.1.1.1".parse().expect("valid ip");
+        assert_eq!(pf.accept(v4_local, v4_remote), Some(true));
+        assert_eq!(pf.accept(v4_remote, v4_local), Some(false));
+
+        let v6_ll: IpAddr = "fe80::1".parse().expect("valid ip");
+        let v6_remote: IpAddr = "2001:db8::1".parse().expect("valid ip");
+        assert_eq!(pf.accept(v6_ll, v6_remote), None);
+
+        let pf_ll =
+            PacketFilter::from_options(None, Some("2001:db8::/32"), true).expect("valid options");
+        assert_eq!(pf_ll.accept(v6_ll, v6_remote), Some(false));
+    }
+
+    #[test]
+    fn test_screen_filter_matching() {
+        let mut filter = ScreenFilter::new(Some("example".to_string()));
+        assert!(filter.is_active());
+        assert!(filter.matches("EXAMPLE.COM", "10.0.0.1"));
+        assert!(filter.matches("10.0.0.1", "sub.example.org"));
+        assert!(!filter.matches("google.com", "10.0.0.1"));
+
+        filter.set(None);
+        assert!(!filter.is_active());
+        assert!(filter.matches("anything", "whatever"));
+    }
+
+    #[test]
+    fn test_bpf_expression() {
+        assert_eq!(bpf_expression(None), "ip or ip6");
+        assert_eq!(bpf_expression(Some("port 80")), "(port 80) and (ip or ip6)");
+        assert_eq!(bpf_expression(Some("  ")), "ip or ip6");
     }
 }

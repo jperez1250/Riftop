@@ -118,6 +118,86 @@ pub fn write_text(
     Ok(())
 }
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    #[test]
+    fn test_output_format_parse() {
+        assert_eq!(OutputFormat::parse("json"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("JSON"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("text"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("plain"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("csv"), OutputFormat::Csv);
+        assert_eq!(OutputFormat::parse("tui"), OutputFormat::Tui);
+        assert_eq!(OutputFormat::parse("unknown"), OutputFormat::Tui);
+    }
+
+    #[test]
+    fn test_json_escape_special_chars() {
+        assert_eq!(json_escape("hello"), "hello");
+        assert_eq!(json_escape("a\"b\\c\n\r\t"), "a\\\"b\\\\c\\n\\r\\t");
+        assert_eq!(json_escape("\u{0007}"), "\\u0007");
+    }
+
+    #[test]
+    fn test_write_json_export() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let ip_a: IpAddr = "192.168.1.1".parse().expect("valid ip");
+        let ip_b: IpAddr = "192.168.1.2".parse().expect("valid ip");
+        table.record(ip_a, ip_b, 80, 443, 6, 500, &[ip_a], now, None);
+
+        let mut buf = Vec::new();
+        write_json(&mut buf, &table, now, 10, "eth0", SortBy::Rate10s).expect("write_json success");
+        let output = String::from_utf8(buf).expect("valid utf8");
+
+        assert!(output.contains("\"interface\":\"eth0\""));
+        assert!(output.contains("\"packets_seen\":1"));
+        assert!(output.contains("\"packets_accepted\":1"));
+        assert!(output.contains("\"bytes_total\":500"));
+        assert!(output.contains("\"flows\":["));
+        assert!(output.contains("\"src\":\"192.168.1.1\""));
+        assert!(output.contains("\"dst\":\"192.168.1.2\""));
+    }
+
+    #[test]
+    fn test_write_text_export() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let ip_a: IpAddr = "10.0.0.1".parse().expect("valid ip");
+        let ip_b: IpAddr = "10.0.0.2".parse().expect("valid ip");
+        table.record(ip_a, ip_b, 100, 200, 17, 1024, &[ip_a], now, None);
+
+        let mut buf = Vec::new();
+        write_text(&mut buf, &table, now, 10, SortBy::Rate10s, true).expect("write_text success");
+        let output = String::from_utf8(buf).expect("valid utf8");
+
+        assert!(output.contains("# packets_seen=1 accepted=1 bytes=1.00 KB flows=1"));
+        assert!(output.contains("# SRC\tDST\t2s\t10s\t40s\tTOTAL"));
+        assert!(output.contains("10.0.0.1\t10.0.0.2\t"));
+    }
+
+    #[test]
+    fn test_write_csv_export() {
+        let mut table = FlowTable::new();
+        table.set_show_ports(true);
+        let now = Instant::now();
+        let ip_a: IpAddr = "172.16.0.1".parse().expect("valid ip");
+        let ip_b: IpAddr = "172.16.0.2".parse().expect("valid ip");
+        table.record(ip_a, ip_b, 1234, 80, 6, 2048, &[ip_a], now, None);
+
+        let mut buf = Vec::new();
+        write_csv(&mut buf, &table, now, 10, SortBy::Rate10s, false).expect("write_csv success");
+        let output = String::from_utf8(buf).expect("valid utf8");
+
+        assert!(output.contains("src,dst,sport,dport,proto,sent,recv,total,rate_2s_bits_sec,rate_10s_bits_sec,rate_40s_bits_sec"));
+        assert!(output.contains("172.16.0.1,172.16.0.2,1234,80,6,2048,0,2048"));
+    }
+}
+
 pub fn write_csv(
     out: &mut dyn Write,
     table: &FlowTable,
