@@ -27,3 +27,39 @@ const fn proto_name(p: u8) -> &'static str {
         _ => "other",
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::{Direction, FlowKey, FlowStats, Globals};
+    use std::net::IpAddr;
+
+    #[test]
+    fn test_top_protocols_accounting() {
+        let now = Instant::now();
+        let ip_a: IpAddr = "10.0.0.1".parse().expect("valid ip");
+        let ip_b: IpAddr = "10.0.0.2".parse().expect("valid ip");
+        let key_tcp = FlowKey::new(ip_a, ip_b, 1234, 80, 6);
+        let key_udp = FlowKey::new(ip_a, ip_b, 1234, 53, 17);
+
+        let mut stats_tcp = FlowStats::new(key_tcp, now);
+        stats_tcp.record(now, 1000, Direction::Unknown, None);
+
+        let mut stats_udp = FlowStats::new(key_udp, now);
+        stats_udp.record(now, 500, Direction::Unknown, None);
+
+        let snap = Snapshot {
+            flows: vec![stats_tcp, stats_udp],
+            globals: Globals::default(),
+            taken_at: now,
+        };
+
+        let rows = top_protocols(&snap, now, 10);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].label, "TCP");
+        assert_eq!(rows[0].bytes, 1000);
+        assert_eq!(rows[1].label, "UDP");
+        assert_eq!(rows[1].bytes, 500);
+    }
+}

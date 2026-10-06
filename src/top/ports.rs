@@ -28,3 +28,36 @@ pub fn top_ports(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
         service_name(p, 0).map_or_else(|| p.to_string(), |name| format!("{p} ({name})"))
     })
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::{Direction, FlowKey, FlowStats, Globals};
+    use std::net::IpAddr;
+
+    #[test]
+    fn test_top_ports_accounting() {
+        let now = Instant::now();
+        let ip_a: IpAddr = "10.0.0.1".parse().expect("valid ip");
+        let ip_b: IpAddr = "10.0.0.2".parse().expect("valid ip");
+        let key = FlowKey::new(ip_a, ip_b, 1234, 80, 6);
+
+        let mut stats = FlowStats::new(key, now);
+        stats.record_endpoints(now, ip_a, 1234, 500);
+        stats.record(now, 500, Direction::Unknown, None);
+
+        let snap = Snapshot {
+            flows: vec![stats],
+            globals: Globals::default(),
+            taken_at: now,
+        };
+
+        let rows = top_ports(&snap, now, 10);
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].label.contains("1234"));
+        assert_eq!(rows[0].bytes, 500);
+        assert!(rows[1].label.contains("80 (http)"));
+        assert_eq!(rows[1].bytes, 0);
+    }
+}

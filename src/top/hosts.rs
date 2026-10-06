@@ -27,3 +27,35 @@ fn accumulate_host(map: &mut HashMap<IpAddr, (u64, f64, f64, f64)>, s: &FlowStat
     e_b.2 += s.rate_b_to_a_10s.rate(now);
     e_b.3 += s.rate_b_to_a_40s.rate(now);
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::{Direction, FlowKey, Globals};
+
+    #[test]
+    fn test_top_hosts_aggregation() {
+        let now = Instant::now();
+        let ip_a: IpAddr = "10.0.0.1".parse().expect("valid ip");
+        let ip_b: IpAddr = "10.0.0.2".parse().expect("valid ip");
+        let key = FlowKey::new(ip_a, ip_b, 1234, 80, 6);
+
+        let mut stats = FlowStats::new(key, now);
+        stats.record_endpoints(now, ip_a, 1234, 1000);
+        stats.record(now, 1000, Direction::Unknown, None);
+
+        let snap = Snapshot {
+            flows: vec![stats],
+            globals: Globals::default(),
+            taken_at: now,
+        };
+
+        let rows = top_hosts(&snap, now, 10);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].label, "10.0.0.1");
+        assert_eq!(rows[0].bytes, 1000);
+        assert_eq!(rows[1].label, "10.0.0.2");
+        assert_eq!(rows[1].bytes, 0);
+    }
+}
