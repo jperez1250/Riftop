@@ -70,3 +70,22 @@ fn fixture_directory_exists() {
         "fixtures/pcap must exist for regression fixtures"
     );
 }
+
+#[test]
+fn expire_with_future_last_seen_does_not_panic() {
+    use std::time::Duration;
+
+    let now = Instant::now();
+    let future_time = now + Duration::from_secs(5);
+    let mut table = FlowTable::new();
+
+    let a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+    let b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+    table.record(a, b, 80, 12345, 6, 100, &[a], future_time, None);
+    assert_eq!(table.len(), 1);
+
+    // Should not panic even if now < s.last_seen
+    table.expire(now, Duration::from_secs(30));
+    assert_eq!(table.len(), 1);
+}
