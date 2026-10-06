@@ -238,7 +238,7 @@ impl FlowTable {
 
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
         self.flows
-            .retain(|_, s| now.duration_since(s.last_seen) < max_idle);
+            .retain(|_, s| now.saturating_duration_since(s.last_seen) < max_idle);
     }
 
     #[must_use]
@@ -248,5 +248,25 @@ impl FlowTable {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.flows.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expire_regressed_timestamp_does_not_panic() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let ip: IpAddr = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+        table.record(ip, ip, 1234, 80, 6, 100, &[], now, None);
+        assert_eq!(table.len(), 1);
+
+        // Expire with regressed timestamp (now - 10 sec)
+        let earlier = now - Duration::from_secs(10);
+        table.expire(earlier, Duration::from_secs(5));
+        // Should retain the entry without panicking
+        assert_eq!(table.len(), 1);
     }
 }

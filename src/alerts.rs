@@ -61,7 +61,7 @@ impl AlertEngine {
         if let Some(pps_lim) = self.config.pps {
             let pkts = snap.globals.packets_accepted;
             if let Some(prev) = self.last_check {
-                let dt = now.duration_since(prev).as_secs_f64().max(0.001);
+                let dt = now.saturating_duration_since(prev).as_secs_f64().max(0.001);
                 let delta = pkts.saturating_sub(self.last_pkt_count) as f64;
                 let pps = delta / dt;
                 if pps >= pps_lim {
@@ -97,5 +97,32 @@ impl AlertEngine {
             .take(n)
             .map(|a| a.message.clone())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_regressed_timestamp_does_not_panic() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            pps: Some(100.0),
+            rate_bps: None,
+        });
+        let now = Instant::now();
+        let snap = Snapshot {
+            flows: vec![],
+            globals: crate::flow::Globals {
+                packets_accepted: 100,
+                ..Default::default()
+            },
+            taken_at: now,
+        };
+        engine.evaluate(&snap, now);
+        // Regressed timestamp (now - 1 sec)
+        let earlier = now - Duration::from_secs(1);
+        engine.evaluate(&snap, earlier);
     }
 }
