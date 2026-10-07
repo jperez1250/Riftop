@@ -59,6 +59,7 @@ pub fn format_endpoint(host: &str, port: u16, protocol: u8, resolve: bool) -> St
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -66,6 +67,16 @@ mod tests {
     fn known_ports() {
         assert_eq!(service_name(443, 6), Some("https"));
         assert_eq!(service_name(22, 6), Some("ssh"));
+        assert_eq!(service_name(53, 17), Some("domain"));
+        assert_eq!(service_name(80, 0), Some("http"));
         assert_eq!(service_name(9999, 6), None);
+    }
+
+    #[test]
+    fn test_format_endpoint() {
+        assert_eq!(format_endpoint("10.0.0.1", 0, 6, true), "10.0.0.1");
+        assert_eq!(format_endpoint("10.0.0.1", 443, 6, true), "10.0.0.1:https");
+        assert_eq!(format_endpoint("10.0.0.1", 443, 6, false), "10.0.0.1:443");
+        assert_eq!(format_endpoint("10.0.0.1", 9999, 6, true), "10.0.0.1:9999");
     }
 }

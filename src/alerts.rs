@@ -99,3 +99,116 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::flow::{FlowKey, FlowStats, Globals, Snapshot};
+    use std::net::IpAddr;
+    use std::str::FromStr;
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_config_default() {
+        let config = AlertConfig::default();
+        assert!(config.rate_bps.is_none());
+        assert!(config.pps.is_none());
+    }
+
+    #[test]
+    fn test_alert_engine_rate_threshold() {
+        let config = AlertConfig {
+            rate_bps: Some(100.0),
+            pps: None,
+        };
+        let mut engine = AlertEngine::new(config);
+        let now = Instant::now();
+
+        let key = FlowKey::new(
+            IpAddr::from_str("10.0.0.1").unwrap(),
+            IpAddr::from_str("10.0.0.2").unwrap(),
+            1234,
+            80,
+            6,
+        );
+        let mut stats = FlowStats::new(key, now);
+        stats.record(now, 2000, crate::flow::Direction::Sent, None);
+
+        let snap = Snapshot {
+            flows: vec![stats],
+            globals: Globals::default(),
+            taken_at: now,
+        };
+
+        engine.evaluate(&snap, now);
+        let alerts: Vec<_> = engine.recent().collect();
+        assert_eq!(alerts.len(), 1);
+        assert!(alerts[0].message.contains("RATE"));
+    }
+
+    #[test]
+    fn test_alert_engine_pps_threshold() {
+        let config = AlertConfig {
+            rate_bps: None,
+            pps: Some(50.0),
+        };
+        let mut engine = AlertEngine::new(config);
+        let now = Instant::now();
+
+        let mut globals = Globals::default();
+        globals.packets_accepted = 100;
+
+        let snap1 = Snapshot {
+            flows: vec![],
+            globals: globals.clone(),
+            taken_at: now,
+        };
+        engine.evaluate(&snap1, now);
+        assert_eq!(engine.recent().count(), 0);
+
+        globals.packets_accepted = 200; // +100 pkts in 1 second = 100 pps >= 50
+        let t1 = now + Duration::from_secs(1);
+        let snap2 = Snapshot {
+            flows: vec![],
+            globals,
+            taken_at: t1,
+        };
+        engine.evaluate(&snap2, t1);
+
+        let alerts: Vec<_> = engine.recent().collect();
+        assert_eq!(alerts.len(), 1);
+        assert!(alerts[0].message.contains("PPS 100 >= 50"));
+    }
+
+    #[test]
+    fn test_alert_engine_deduplication_and_max_keep() {
+        let mut engine = AlertEngine::new(AlertConfig::default());
+        let now = Instant::now();
+
+        // Test deduplication
+        engine.push(Alert {
+            when: now,
+            message: "TEST ALERT".to_string(),
+        });
+        engine.push(Alert {
+            when: now,
+            message: "TEST ALERT".to_string(),
+        });
+        assert_eq!(engine.recent().count(), 1);
+
+        // Test max_keep capping at 20
+        for i in 0..30 {
+            engine.push(Alert {
+                when: now,
+                message: format!("ALERT {i}"),
+            });
+        }
+        assert_eq!(engine.recent().count(), 20);
+        let latest = engine.latest_messages(3);
+        assert_eq!(latest.len(), 3);
+        assert_eq!(latest[0], "ALERT 29");
+        assert_eq!(latest[1], "ALERT 28");
+        assert_eq!(latest[2], "ALERT 27");
+    }
+}

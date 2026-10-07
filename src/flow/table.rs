@@ -250,3 +250,67 @@ impl FlowTable {
         self.flows.is_empty()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_sort_by_parse() {
+        assert_eq!(SortBy::parse("2s"), SortBy::Rate2s);
+        assert_eq!(SortBy::parse("40s"), SortBy::Rate40s);
+        assert_eq!(SortBy::parse("source"), SortBy::Source);
+        assert_eq!(SortBy::parse("src"), SortBy::Source);
+        assert_eq!(SortBy::parse("destination"), SortBy::Destination);
+        assert_eq!(SortBy::parse("dst"), SortBy::Destination);
+        assert_eq!(SortBy::parse("total"), SortBy::Total);
+        assert_eq!(SortBy::parse("10s"), SortBy::Rate10s);
+        assert_eq!(SortBy::parse("other"), SortBy::Rate10s);
+    }
+
+    #[test]
+    fn test_flow_table_record_and_snapshot() {
+        let mut table = FlowTable::new();
+        assert!(table.is_empty());
+        assert_eq!(table.len(), 0);
+
+        let now = Instant::now();
+        let ip1 = IpAddr::from_str("10.0.0.1").unwrap();
+        let ip2 = IpAddr::from_str("10.0.0.2").unwrap();
+
+        table.record(ip1, ip2, 1000, 80, 6, 500, &[ip1], now, None);
+        table.record(ip2, ip1, 80, 1000, 6, 300, &[ip1], now, None);
+
+        assert!(!table.is_empty());
+        assert_eq!(table.len(), 1);
+
+        let g = table.globals();
+        assert_eq!(g.packets_seen, 2);
+        assert_eq!(g.packets_accepted, 2);
+        assert_eq!(g.bytes_total, 800);
+        assert_eq!(g.bytes_sent, 500);
+        assert_eq!(g.bytes_recv, 300);
+
+        let snap = table.snapshot(10, now);
+        assert_eq!(snap.flows.len(), 1);
+        assert_eq!(snap.flows[0].total_bytes, 800);
+    }
+
+    #[test]
+    fn test_flow_table_expire() {
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let ip1 = IpAddr::from_str("10.0.0.1").unwrap();
+        let ip2 = IpAddr::from_str("10.0.0.2").unwrap();
+
+        table.record(ip1, ip2, 1000, 80, 6, 500, &[ip1], t0, None);
+        assert_eq!(table.len(), 1);
+
+        // Advance time by 10s
+        let t1 = t0 + Duration::from_secs(10);
+        table.expire(t1, Duration::from_secs(5));
+        assert_eq!(table.len(), 0);
+    }
+}
