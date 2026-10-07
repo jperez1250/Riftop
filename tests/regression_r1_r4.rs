@@ -41,7 +41,7 @@ fn eth_ipv4_tcp(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, ip_total_len
     f.extend_from_slice(&0u16.to_be_bytes());
     f.extend_from_slice(&0u16.to_be_bytes());
     let payload = ip_total_len.saturating_sub(40) as usize;
-    f.extend(std::iter::repeat(0u8).take(payload));
+    f.extend(std::iter::repeat_n(0u8, payload));
     f
 }
 
@@ -83,7 +83,7 @@ fn materialize_fixture() -> PathBuf {
     let mut garbage = vec![0xffu8; 6];
     garbage.extend_from_slice(&[0x02, 0, 0, 0, 0, 0x01]);
     garbage.extend_from_slice(&[0x08, 0x06]);
-    garbage.extend(std::iter::repeat(0u8).take(28));
+    garbage.extend(std::iter::repeat_n(0u8, 28));
     pcap.extend_from_slice(&pcap_record(1_700_000_020, &garbage));
 
     let dir = std::env::temp_dir().join("riftop_fixtures");
