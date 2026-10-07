@@ -23,6 +23,11 @@ struct CacheEntry {
     inserted: Instant,
 }
 
+/// Sanitize hostnames by stripping control characters and truncating to max 253 chars (RFC 1035).
+pub fn sanitize_hostname(name: &str) -> String {
+    name.chars().filter(|c| !c.is_control()).take(253).collect()
+}
+
 /// Thread-safe reverse DNS cache with deduplicated pending request tracking and negative caching.
 #[derive(Debug)]
 pub struct DnsCache {
@@ -73,7 +78,14 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => {
+                let sanitized = sanitize_hostname(&n);
+                if sanitized.is_empty() {
+                    DnsState::Negative
+                } else {
+                    DnsState::Resolved(sanitized)
+                }
+            }
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +123,54 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_hostname_normal() {
+        assert_eq!(sanitize_hostname("example.com"), "example.com");
+        assert_eq!(sanitize_hostname("sub.domain.org"), "sub.domain.org");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_control_chars() {
+        assert_eq!(sanitize_hostname("host\x1b[31m.com"), "host[31m.com");
+        assert_eq!(sanitize_hostname("host\n\r\t\0.com"), "host.com");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_length_limit() {
+        let long_name = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_name);
+        assert_eq!(sanitized.len(), 253);
+        assert_eq!(sanitized, "a".repeat(253));
+    }
+
+    #[test]
+    fn test_dns_cache_insert_sanitization() {
+        use std::net::Ipv4Addr;
+
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
+
+        // Standard insertion
+        cache.insert(ip, Some("valid.host.com".to_string()));
+        assert_eq!(cache.get(&ip), Some("valid.host.com".to_string()));
+
+        // Insertion with control characters
+        let ip2 = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 2));
+        cache.insert(ip2, Some("bad\x1b[2J.host.com".to_string()));
+        assert_eq!(cache.get(&ip2), Some("bad[2J.host.com".to_string()));
+
+        // Insertion with only control characters -> Negative state
+        let ip3 = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 3));
+        cache.insert(ip3, Some("\x1b\x07\n\r".to_string()));
+        assert_eq!(cache.get(&ip3), None);
+        assert_eq!(cache.state(&ip3), Some(DnsState::Negative));
+        assert_eq!(cache.display(&ip3, true), "192.0.2.3");
     }
 }
