@@ -113,3 +113,39 @@ impl DnsCache {
         ip.to_string()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_dns_cache_get_and_insert() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::from_str("1.1.1.1").unwrap();
+
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), None);
+        assert_eq!(cache.display(&ip, true), "1.1.1.1");
+
+        cache.insert(ip, Some("one.one.one.one".to_string()));
+        assert_eq!(cache.get(&ip), Some("one.one.one.one".to_string()));
+        assert_eq!(
+            cache.state(&ip),
+            Some(DnsState::Resolved("one.one.one.one".to_string()))
+        );
+        assert_eq!(cache.display(&ip, true), "one.one.one.one");
+        assert_eq!(cache.display(&ip, false), "1.1.1.1");
+    }
+
+    #[test]
+    fn test_dns_cache_negative() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::from_str("192.0.2.1").unwrap();
+
+        cache.insert(ip, None);
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), Some(DnsState::Negative));
+    }
+}

@@ -224,15 +224,106 @@ pub fn bpf_expression(user: Option<&str>) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
     #[test]
     fn parse_v4_prefix() {
-        if let Ok(f) = NetFilterV4::parse("10.0.0.0/24") {
-            assert!(f.contains(Ipv4Addr::new(10, 0, 0, 5)));
-        } else {
-            panic!("failed to parse IPv4 CIDR");
-        }
+        let f = NetFilterV4::parse("10.0.0.0/24").unwrap();
+        assert!(f.contains(Ipv4Addr::new(10, 0, 0, 5)));
+        assert!(!f.contains(Ipv4Addr::new(10, 0, 1, 5)));
+
+        // Netmask syntax
+        let f2 = NetFilterV4::parse("10.0.0.0/255.255.255.0").unwrap();
+        assert_eq!(f, f2);
+
+        // Invalid cases
+        assert!(NetFilterV4::parse("invalid_no_slash").is_err());
+        assert!(NetFilterV4::parse("10.0.0.0/33").is_err());
+        assert!(NetFilterV4::parse("256.0.0.1/24").is_err());
+        assert!(NetFilterV4::parse("10.0.0.0/abc").is_err());
+    }
+
+    #[test]
+    fn test_v4_classify() {
+        let f = NetFilterV4::parse("10.0.0.0/24").unwrap();
+        let in_net = Ipv4Addr::new(10, 0, 0, 1);
+        let out_net = Ipv4Addr::new(8, 8, 8, 8);
+
+        assert_eq!(f.classify(in_net, out_net), NetDirection::Out);
+        assert_eq!(f.classify(out_net, in_net), NetDirection::In);
+        assert_eq!(f.classify(in_net, in_net), NetDirection::Drop);
+        assert_eq!(f.classify(out_net, out_net), NetDirection::Drop);
+    }
+
+    #[test]
+    fn parse_v6_prefix() {
+        let f = NetFilterV6::parse("2001:db8::/32").unwrap();
+        let inside: Ipv6Addr = "2001:db8::1".parse().unwrap();
+        let outside: Ipv6Addr = "2001:db9::1".parse().unwrap();
+
+        assert!(f.contains(inside));
+        assert!(!f.contains(outside));
+
+        assert_eq!(f.classify(inside, outside), NetDirection::Out);
+        assert_eq!(f.classify(outside, inside), NetDirection::In);
+        assert_eq!(f.classify(inside, inside), NetDirection::Drop);
+
+        // Invalid cases
+        assert!(NetFilterV6::parse("invalid").is_err());
+        assert!(NetFilterV6::parse("2001:db8::/129").is_err());
+        assert!(NetFilterV6::parse("2001:db8::/xyz").is_err());
+    }
+
+    #[test]
+    fn test_is_link_local_v6() {
+        let ll1: Ipv6Addr = "fe80::1".parse().unwrap();
+        let ll2: Ipv6Addr = "febf:ffff::1".parse().unwrap();
+        let not_ll1: Ipv6Addr = "fe00::1".parse().unwrap();
+        let not_ll2: Ipv6Addr = "fec0::1".parse().unwrap();
+        let loopback: Ipv6Addr = "::1".parse().unwrap();
+
+        assert!(is_link_local_v6(ll1));
+        assert!(is_link_local_v6(ll2));
+        assert!(!is_link_local_v6(not_ll1));
+        assert!(!is_link_local_v6(not_ll2));
+        assert!(!is_link_local_v6(loopback));
+    }
+
+    #[test]
+    fn test_packet_filter_accept() {
+        let pf = PacketFilter::from_options(Some("10.0.0.0/24"), None, false).unwrap();
+        let src_v4: IpAddr = "10.0.0.1".parse().unwrap();
+        let dst_v4: IpAddr = "8.8.8.8".parse().unwrap();
+        let ll_v6: IpAddr = "fe80::1".parse().unwrap();
+
+        assert_eq!(pf.accept(src_v4, dst_v4), Some(true)); // Outbound
+        assert_eq!(pf.accept(ll_v6, dst_v4), None); // Link-local blocked
+    }
+
+    #[test]
+    fn test_screen_filter() {
+        let mut sf = ScreenFilter::new(None);
+        assert!(!sf.is_active());
+        assert!(sf.matches("example.com", "other.org"));
+
+        sf.set(Some("EXAMPLE".to_string()));
+        assert!(sf.is_active());
+        assert!(sf.matches("example.com", "other.org"));
+        assert!(sf.matches("other.org", "EXAMPLE.com"));
+        assert!(!sf.matches("foo.com", "bar.org"));
+
+        sf.set(Some("".to_string()));
+        assert!(!sf.is_active());
+        assert!(sf.matches("foo.com", "bar.org"));
+    }
+
+    #[test]
+    fn test_bpf_expression() {
+        assert_eq!(bpf_expression(None), "ip or ip6");
+        assert_eq!(bpf_expression(Some("")), "ip or ip6");
+        assert_eq!(bpf_expression(Some("   ")), "ip or ip6");
+        assert_eq!(bpf_expression(Some("port 80")), "(port 80) and (ip or ip6)");
     }
 }

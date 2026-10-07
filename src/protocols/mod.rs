@@ -186,6 +186,7 @@ fn decode_ip_payload(payload: &[u8], vlan_id: Option<u16>) -> DecodeResult {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -193,5 +194,44 @@ mod tests {
     fn empty_is_ignored() {
         assert_eq!(decode_ethernet(&[]), DecodeResult::Ignored);
         assert_eq!(decode_frame(1, &[]), DecodeResult::Ignored);
+    }
+
+    #[test]
+    fn test_truncated_ethernet_and_vlan() {
+        // Less than 14 bytes Ethernet
+        assert_eq!(decode_ethernet(&[0u8; 13]), DecodeResult::Ignored);
+
+        // Ethernet with non-IP ethertype (ARP = 0x0806)
+        let mut eth_arp = vec![0u8; 14];
+        eth_arp[12] = 0x08;
+        eth_arp[13] = 0x06;
+        assert_eq!(decode_ethernet(&eth_arp), DecodeResult::Ignored);
+
+        // Truncated VLAN header (0x8100 ethertype but missing 4 bytes tag)
+        let mut eth_vlan_trunc = vec![0u8; 14];
+        eth_vlan_trunc[12] = 0x81;
+        eth_vlan_trunc[13] = 00;
+        assert_eq!(decode_ethernet(&eth_vlan_trunc), DecodeResult::Ignored);
+    }
+
+    #[test]
+    fn test_linux_sll_and_sll2_and_loopback() {
+        // Truncated Linux SLL (< 16 bytes)
+        assert_eq!(decode_linux_sll(&[0u8; 15]), DecodeResult::Ignored);
+        // Truncated Linux SLL2 (< 20 bytes)
+        assert_eq!(decode_linux_sll2(&[0u8; 19]), DecodeResult::Ignored);
+
+        // Loopback (DLT 0) <= 4 bytes
+        assert_eq!(decode_frame(0, &[0u8; 4]), DecodeResult::Ignored);
+
+        // Unknown DLT (e.g. 999)
+        assert_eq!(decode_frame(999, &[0u8; 30]), DecodeResult::Ignored);
+    }
+
+    #[test]
+    fn test_malformed_ip_payload() {
+        // Raw invalid payload passed to decode_ip_payload
+        let garbage = vec![0xff; 20];
+        assert_eq!(decode_ip_payload(&garbage, None), DecodeResult::Ignored);
     }
 }

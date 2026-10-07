@@ -28,3 +28,44 @@ pub fn top_ports(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
         service_name(p, 0).map_or_else(|| p.to_string(), |name| format!("{p} ({name})"))
     })
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::flow::{FlowKey, FlowStats, Globals};
+    use std::net::IpAddr;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_top_ports_empty() {
+        let snap = Snapshot {
+            flows: vec![],
+            globals: Globals::default(),
+            taken_at: Instant::now(),
+        };
+        assert!(top_ports(&snap, Instant::now(), 5).is_empty());
+    }
+
+    #[test]
+    fn test_top_ports_ranking() {
+        let now = Instant::now();
+        let ip1 = IpAddr::from_str("10.0.0.1").unwrap();
+        let ip2 = IpAddr::from_str("10.0.0.2").unwrap();
+        let key = FlowKey::new(ip1, ip2, 443, 12345, 6);
+
+        let mut stats = FlowStats::new(key, now);
+        stats.record_endpoints(now, ip1, 443, 8000);
+
+        let snap = Snapshot {
+            flows: vec![stats],
+            globals: Globals::default(),
+            taken_at: now,
+        };
+
+        let top = top_ports(&snap, now, 5);
+        assert_eq!(top.len(), 2);
+        assert!(top[0].label.contains("443 (https)"));
+        assert_eq!(top[0].bytes, 8000);
+    }
+}
