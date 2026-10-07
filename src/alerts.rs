@@ -61,7 +61,7 @@ impl AlertEngine {
         if let Some(pps_lim) = self.config.pps {
             let pkts = snap.globals.packets_accepted;
             if let Some(prev) = self.last_check {
-                let dt = now.duration_since(prev).as_secs_f64().max(0.001);
+                let dt = now.saturating_duration_since(prev).as_secs_f64().max(0.001);
                 let delta = pkts.saturating_sub(self.last_pkt_count) as f64;
                 let pps = delta / dt;
                 if pps >= pps_lim {

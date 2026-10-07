@@ -6,6 +6,9 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::time::Instant;
 
+use std::time::Duration;
+
+use riftop::alerts::{AlertConfig, AlertEngine};
 use riftop::export::json_escape;
 use riftop::flow::{FlowKey, FlowTable};
 use riftop::protocols::{decode_ethernet, DecodeResult};
@@ -69,4 +72,46 @@ fn fixture_directory_exists() {
         dir.is_dir(),
         "fixtures/pcap must exist for regression fixtures"
     );
+}
+
+#[test]
+fn expire_with_earlier_now_timestamp_does_not_panic() {
+    let now = Instant::now();
+    let future_time = now + Duration::from_secs(10);
+    let mut table = FlowTable::new();
+    let src = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+    let dst = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+    // Record flow with a future timestamp
+    table.record(src, dst, 1234, 80, 6, 100, &[], future_time, None);
+    assert_eq!(table.len(), 1);
+
+    // Calling expire with an earlier `now` timestamp must not panic
+    table.expire(now, Duration::from_secs(30));
+    assert_eq!(
+        table.len(),
+        1,
+        "Flow with last_seen > now should be retained without panicking"
+    );
+}
+
+#[test]
+fn alert_engine_evaluate_earlier_now_does_not_panic() {
+    let now = Instant::now();
+    let earlier_time = now - Duration::from_secs(5);
+    let mut table = FlowTable::new();
+    let src = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+    let dst = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+    table.record(src, dst, 1234, 80, 6, 100, &[], now, None);
+    let snap = table.snapshot(10, now);
+
+    let mut engine = AlertEngine::new(AlertConfig {
+        pps: Some(10.0),
+        rate_bps: None,
+    });
+
+    engine.evaluate(&snap, now);
+    // Evaluating with an earlier time should saturating-subtract and not panic
+    engine.evaluate(&snap, earlier_time);
 }
