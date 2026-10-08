@@ -113,3 +113,42 @@ impl DnsCache {
         ip.to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_dns_cache_insert_get_display() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1));
+
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), None);
+        assert_eq!(cache.display(&ip, true), "1.1.1.1");
+        assert_eq!(cache.display(&ip, false), "1.1.1.1");
+
+        cache.insert(ip, Some("one.one.one.one".to_string()));
+
+        assert_eq!(cache.get(&ip), Some("one.one.one.one".to_string()));
+        assert_eq!(
+            cache.state(&ip),
+            Some(DnsState::Resolved("one.one.one.one".to_string()))
+        );
+        assert_eq!(cache.display(&ip, true), "one.one.one.one");
+        assert_eq!(cache.display(&ip, false), "1.1.1.1");
+    }
+
+    #[test]
+    fn test_dns_cache_negative_entry() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
+
+        cache.insert(ip, None);
+
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), Some(DnsState::Negative));
+        assert_eq!(cache.display(&ip, true), "192.0.2.1");
+    }
+}
