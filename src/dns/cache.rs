@@ -72,7 +72,8 @@ impl DnsCache {
     /// Insert or refresh an entry.
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
-        let state = match name {
+        let sanitized = name.and_then(|n| sanitize_hostname(&n));
+        let state = match sanitized {
             Some(n) => DnsState::Resolved(n),
             None => DnsState::Negative,
         };
@@ -111,5 +112,68 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+/// Sanitize a hostname string by stripping control characters and enforcing RFC 1035 max length (253 chars).
+/// Returns `None` if the resulting sanitized hostname is empty.
+#[must_use]
+pub fn sanitize_hostname(s: &str) -> Option<String> {
+    let clean: String = s.chars().filter(|c| !c.is_control()).take(253).collect();
+    let trimmed = clean.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_hostname_valid() {
+        assert_eq!(
+            sanitize_hostname("example.com"),
+            Some("example.com".to_string())
+        );
+        assert_eq!(
+            sanitize_hostname("  host.local  "),
+            Some("host.local".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_hostname_control_chars() {
+        assert_eq!(
+            sanitize_hostname("host\x1b[31m.com\n\r\t\0"),
+            Some("host[31m.com".to_string())
+        );
+        assert_eq!(sanitize_hostname("\n\r\t\0"), None);
+    }
+
+    #[test]
+    fn test_sanitize_hostname_length_limit() {
+        let long_name = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_name).unwrap_or_default();
+        assert_eq!(sanitized.len(), 253);
+    }
+
+    #[test]
+    fn test_dns_cache_insert_sanitization() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10));
+
+        // Malicious PTR record with ANSI escape and control chars
+        cache.insert(ip, Some("bad\x1b[2Jserver\n.com".to_string()));
+        assert_eq!(cache.get(&ip), Some("bad[2Jserver.com".to_string()));
+
+        // Pure control chars should become Negative state (None from get)
+        let ip2 = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 11));
+        cache.insert(ip2, Some("\x00\x07\n\r".to_string()));
+        assert_eq!(cache.get(&ip2), None);
+        assert_eq!(cache.state(&ip2), Some(DnsState::Negative));
     }
 }
