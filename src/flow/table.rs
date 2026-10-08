@@ -125,9 +125,10 @@ impl FlowTable {
             Direction::Received => self.globals.bytes_recv += bytes,
             Direction::Unknown => {}
         }
+        // FlowKey is Copy, so pass by value without cloning
         let entry = self
             .flows
-            .entry(key.clone())
+            .entry(key)
             .or_insert_with(|| FlowStats::new(key, now));
         entry.record_endpoints(now, src, sport, bytes);
         entry.record(now, bytes, dir, tcp);
@@ -182,9 +183,10 @@ impl FlowTable {
                         Direction::Received => self.globals.bytes_recv += bytes,
                         Direction::Unknown => {}
                     }
+                    // FlowKey is Copy, so pass by value without cloning
                     let entry = self
                         .flows
-                        .entry(key.clone())
+                        .entry(key)
                         .or_insert_with(|| FlowStats::new(key, now));
                     entry.record_endpoints(now, src, sport, bytes);
                     entry.record(now, bytes, dir, tcp);
