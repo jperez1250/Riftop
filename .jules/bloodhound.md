@@ -1,0 +1,4 @@
+## 2025-05-18 - Unsanitized DNS Hostnames & Time Subtraction Panics
+**Issue:** Reverse DNS lookups could insert raw hostnames containing control characters (newlines, null bytes, tabs) or unbounded strings into `DnsCache`, which corrupted TUI and text output formats. Additionally, calling `Instant::duration_since` during flow expiration (`FlowTable::expire`) or alert evaluation (`AlertEngine::evaluate`) panicked when timestamps arrived out-of-order or regressed.
+**Fix:** Added `sanitize_hostname` in `DnsCache::insert` to strip control characters and cap hostname length to 253 characters (RFC 1035 max). Replaced `duration_since` with `saturating_duration_since` in `FlowTable::expire` and `AlertEngine::evaluate`.
+**Prevention:** Always sanitize external string inputs before caching or displaying, and use `saturating_duration_since` for all packet and system clock timestamp comparisons to handle time jitter or out-of-order packets safely.

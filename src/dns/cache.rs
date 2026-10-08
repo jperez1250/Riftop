@@ -72,9 +72,9 @@ impl DnsCache {
     /// Insert or refresh an entry.
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
-        let state = match name {
-            Some(n) => DnsState::Resolved(n),
-            None => DnsState::Negative,
+        let state = match name.as_deref().map(sanitize_hostname) {
+            Some(n) if !n.is_empty() => DnsState::Resolved(n),
+            _ => DnsState::Negative,
         };
         guard.insert(
             ip,
@@ -111,5 +111,37 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+fn sanitize_hostname(raw: &str) -> String {
+    raw.chars().filter(|c| !c.is_control()).take(253).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_dns_sanitization_and_bounding() {
+        let cache = DnsCache::new();
+        let ip1 = IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1));
+        let ip2 = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
+        let ip3 = IpAddr::V4(Ipv4Addr::new(9, 9, 9, 9));
+
+        // Test stripping control characters (newlines, carriage returns, tabs, null bytes)
+        cache.insert(ip1, Some("malicious\n\r\t\0host.com".to_string()));
+        assert_eq!(cache.get(&ip1), Some("malicioushost.com".to_string()));
+
+        // Test RFC 1035 limit (253 chars max)
+        let long_host = "a".repeat(300);
+        cache.insert(ip2, Some(long_host));
+        assert_eq!(cache.get(&ip2), Some("a".repeat(253)));
+
+        // Test string with only control characters results in Negative state
+        cache.insert(ip3, Some("\n\r\t\x00".to_string()));
+        assert_eq!(cache.get(&ip3), None);
+        assert_eq!(cache.state(&ip3), Some(DnsState::Negative));
     }
 }
