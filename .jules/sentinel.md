@@ -1,0 +1,6 @@
+# Sentinel Security Journal
+
+## 2025-05-18 - Untrusted DNS PTR Response Sanitization & Test Clippy Lints
+**Vulnerability:** Reverse DNS PTR records returned by `dns_lookup::lookup_addr` are sourced from potentially untrusted network servers and could contain ANSI terminal control sequences (e.g., `\x1b[2J`), line breaks, or unbounded length strings. When rendered in the TUI (ratatui / crossterm) or log outputs, control characters risk UI spoofing or terminal disruption, while unbounded lengths risk memory bloat.
+**Learning:** `DnsCache::insert` serves as the security boundary for DNS resolution. Sanitizing hostnames via `sanitize_hostname` (stripping `c.is_control()` and enforcing RFC 1035 max length 253 characters) ensures untrusted DNS responses are safe before entering the cache or UI. Also, `cargo clippy --all-targets -- -D warnings` enforces strict clippy rules across integration tests (`tests/*.rs`), requiring top-level `#![allow(clippy::unwrap_used, clippy::expect_used)]` attributes in test files when standard test assertions are used.
+**Prevention:** Always sanitize untrusted external string inputs (such as DNS PTR responses or packet payload metadata) at the storage/cache entry boundary before passing them to UI renderers or loggers.
