@@ -250,3 +250,41 @@ impl FlowTable {
         self.flows.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_flow_table_expire() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let src = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let dst = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+        table.record(src, dst, 1000, 80, 6, 100, &[src], now, None);
+        assert_eq!(table.len(), 1);
+
+        // Expire with max_idle = 10s at now + 5s -> should remain
+        table.expire(now + Duration::from_secs(5), Duration::from_secs(10));
+        assert_eq!(table.len(), 1);
+
+        // Expire with max_idle = 10s at now + 15s -> should be removed
+        table.expire(now + Duration::from_secs(15), Duration::from_secs(10));
+        assert_eq!(table.len(), 0);
+    }
+
+    #[test]
+    fn test_flow_table_sort_by_parse() {
+        assert_eq!(SortBy::parse("2s"), SortBy::Rate2s);
+        assert_eq!(SortBy::parse("40s"), SortBy::Rate40s);
+        assert_eq!(SortBy::parse("source"), SortBy::Source);
+        assert_eq!(SortBy::parse("src"), SortBy::Source);
+        assert_eq!(SortBy::parse("destination"), SortBy::Destination);
+        assert_eq!(SortBy::parse("dst"), SortBy::Destination);
+        assert_eq!(SortBy::parse("total"), SortBy::Total);
+        assert_eq!(SortBy::parse("10s"), SortBy::Rate10s);
+        assert_eq!(SortBy::parse("invalid"), SortBy::Rate10s);
+    }
+}

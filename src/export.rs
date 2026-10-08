@@ -148,3 +148,63 @@ pub fn write_csv(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn test_output_format_parse() {
+        assert_eq!(OutputFormat::parse("json"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("JSON"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("text"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("plain"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("csv"), OutputFormat::Csv);
+        assert_eq!(OutputFormat::parse("unknown"), OutputFormat::Tui);
+    }
+
+    #[test]
+    fn test_json_escape() {
+        assert_eq!(json_escape("hello"), "hello");
+        assert_eq!(json_escape("a\"b\\c\n\r\t"), "a\\\"b\\\\c\\n\\r\\t");
+        assert_eq!(json_escape("\x07"), "\\u0007");
+    }
+
+    #[test]
+    fn test_write_json_text_csv() {
+        let now = Instant::now();
+        let mut table = FlowTable::new();
+        table.set_show_ports(true);
+        let src = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10));
+        let dst = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        table.record(src, dst, 12345, 80, 6, 500, &[src], now, None);
+
+        // JSON
+        let mut json_buf = Vec::new();
+        write_json(&mut json_buf, &table, now, 10, "eth0", SortBy::Total).expect("write_json");
+        let json_str = String::from_utf8(json_buf).expect("utf8");
+        assert!(json_str.contains("\"interface\":\"eth0\""));
+        assert!(json_str.contains("\"packets_seen\":1"));
+        assert!(json_str.contains("\"flows\":["));
+
+        // Text
+        let mut text_buf = Vec::new();
+        write_text(&mut text_buf, &table, now, 10, SortBy::Total, true).expect("write_text");
+        let text_str = String::from_utf8(text_buf).expect("utf8");
+        assert!(text_str.contains("# packets_seen=1"));
+        assert!(text_str.contains("192.168.1.10"));
+
+        // CSV
+        let mut csv_buf = Vec::new();
+        write_csv(&mut csv_buf, &table, now, 10, SortBy::Total, false).expect("write_csv");
+        let csv_str = String::from_utf8(csv_buf).expect("utf8");
+        assert!(csv_str.contains("src,dst,sport,dport,proto,sent,recv,total,rate_2s_bits_sec"));
+        assert!(
+            csv_str.contains("10.0.0.1")
+                && csv_str.contains("192.168.1.10")
+                && csv_str.contains("500")
+        );
+    }
+}
