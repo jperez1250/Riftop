@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::manual_repeat_n)]
 //! Regression tests for network filters.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
