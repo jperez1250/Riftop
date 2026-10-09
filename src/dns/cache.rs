@@ -114,13 +114,26 @@ impl DnsCache {
     }
 }
 
-/// Sanitize hostname by stripping control characters and bounding length to RFC 1035 max (253 chars).
+/// Sanitize hostname by stripping control characters and bounding byte length to RFC 1035 max (253 octets).
 fn sanitize_hostname(s: &str) -> Option<String> {
-    let cleaned: String = s.chars().filter(|c| !c.is_control()).take(253).collect();
-    if cleaned.trim().is_empty() {
-        None
+    let cleaned: String = s.chars().filter(|c| !c.is_control()).collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.len() <= 253 {
+        Some(trimmed.to_string())
     } else {
-        Some(cleaned)
+        let mut end = 253;
+        while !trimmed.is_char_boundary(end) {
+            end -= 1;
+        }
+        let truncated = trimmed[..end].trim();
+        if truncated.is_empty() {
+            None
+        } else {
+            Some(truncated.to_string())
+        }
     }
 }
 
@@ -147,6 +160,16 @@ mod tests {
         assert!(resolved.is_some());
         if let Some(r) = resolved {
             assert_eq!(r.len(), 253);
+        }
+
+        // Test multi-byte unicode truncation does not panic or exceed 253 bytes
+        let ip2 = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 13));
+        let unicode_long = "🌐".repeat(100); // 100 * 4 bytes = 400 bytes
+        cache.insert(ip2, Some(unicode_long));
+        let resolved2 = cache.get(&ip2);
+        assert!(resolved2.is_some());
+        if let Some(r) = resolved2 {
+            assert!(r.len() <= 253);
         }
     }
 
