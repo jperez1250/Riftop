@@ -6,7 +6,8 @@ use crate::top::types::{rank, TopRow};
 
 #[must_use]
 pub fn top_protocols(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
-    let mut map: HashMap<u8, (u64, f64, f64, f64)> = HashMap::new();
+    // Pre-allocate capacity: upper bound bounded by total number of flows in snapshot
+    let mut map: HashMap<u8, (u64, f64, f64, f64)> = HashMap::with_capacity(snap.flows.len());
     for s in &snap.flows {
         let e = map.entry(s.key.protocol).or_insert((0, 0.0, 0.0, 0.0));
         e.0 += s.total_bytes;
