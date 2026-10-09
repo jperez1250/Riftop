@@ -11,8 +11,10 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - name: Checkout base branch for labeler config
+      - name: Checkout PR head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Run Labeler
         uses: actions/labeler@v4
