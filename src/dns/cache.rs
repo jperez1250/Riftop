@@ -72,7 +72,7 @@ impl DnsCache {
     /// Insert or refresh an entry.
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
-        let state = match name {
+        let state = match name.and_then(|n| sanitize_hostname(&n)) {
             Some(n) => DnsState::Resolved(n),
             None => DnsState::Negative,
         };
@@ -111,5 +111,51 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+/// Sanitize hostname by stripping control characters and bounding length to RFC 1035 max (253 chars).
+fn sanitize_hostname(s: &str) -> Option<String> {
+    let cleaned: String = s.chars().filter(|c| !c.is_control()).take(253).collect();
+    if cleaned.trim().is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_hostname_control_chars() {
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10));
+        let cache = DnsCache::new();
+        cache.insert(ip, Some("host\x1b[31m.example.com\n\r".to_string()));
+        assert_eq!(cache.get(&ip), Some("host[31m.example.com".to_string()));
+    }
+
+    #[test]
+    fn test_sanitize_hostname_bounded_length() {
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 11));
+        let cache = DnsCache::new();
+        let long_name = "a".repeat(300);
+        cache.insert(ip, Some(long_name));
+        let resolved = cache.get(&ip);
+        assert!(resolved.is_some());
+        if let Some(r) = resolved {
+            assert_eq!(r.len(), 253);
+        }
+    }
+
+    #[test]
+    fn test_sanitize_hostname_only_control_chars() {
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 12));
+        let cache = DnsCache::new();
+        cache.insert(ip, Some("\x1b\x07\n\r  ".to_string()));
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), Some(DnsState::Negative));
     }
 }
