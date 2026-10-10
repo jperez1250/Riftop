@@ -238,7 +238,7 @@ impl FlowTable {
 
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
         self.flows
-            .retain(|_, s| now.duration_since(s.last_seen) < max_idle);
+            .retain(|_, s| now.saturating_duration_since(s.last_seen) < max_idle);
     }
 
     #[must_use]
@@ -248,5 +248,72 @@ impl FlowTable {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.flows.is_empty()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sort_by_parse() {
+        assert_eq!(SortBy::parse("2s"), SortBy::Rate2s);
+        assert_eq!(SortBy::parse("40s"), SortBy::Rate40s);
+        assert_eq!(SortBy::parse("source"), SortBy::Source);
+        assert_eq!(SortBy::parse("SRC"), SortBy::Source);
+        assert_eq!(SortBy::parse("destination"), SortBy::Destination);
+        assert_eq!(SortBy::parse("dst"), SortBy::Destination);
+        assert_eq!(SortBy::parse("total"), SortBy::Total);
+        assert_eq!(SortBy::parse("unknown"), SortBy::Rate10s);
+    }
+
+    #[test]
+    fn test_flow_table_expiration_and_time_regression() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let ip_a: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip_b: IpAddr = "10.0.0.2".parse().unwrap();
+
+        table.record(ip_a, ip_b, 1000, 80, 6, 500, &[], now, None);
+        assert_eq!(table.len(), 1);
+
+        // Expire with short duration, flow should remain active
+        table.expire(now + Duration::from_secs(10), Duration::from_secs(30));
+        assert_eq!(table.len(), 1);
+
+        // Expire after max_idle duration, flow should be removed
+        table.expire(now + Duration::from_secs(31), Duration::from_secs(30));
+        assert_eq!(table.len(), 0);
+
+        // Test expire with time regression (now_past < flow.last_seen) -> must not panic
+        table.record(ip_a, ip_b, 1000, 80, 6, 500, &[], now, None);
+        let now_past = now - Duration::from_secs(10);
+        table.expire(now_past, Duration::from_secs(30));
+        assert_eq!(table.len(), 1);
+    }
+
+    #[test]
+    fn test_flow_table_globals_and_sorting() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let ip_a: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip_b: IpAddr = "10.0.0.2".parse().unwrap();
+        let ip_c: IpAddr = "10.0.0.3".parse().unwrap();
+
+        table.record(ip_a, ip_b, 1000, 80, 6, 200, &[ip_a], now, None);
+        table.record(ip_a, ip_c, 1001, 80, 6, 500, &[ip_a], now, None);
+
+        let g = table.globals();
+        assert_eq!(g.packets_seen, 2);
+        assert_eq!(g.packets_accepted, 2);
+        assert_eq!(g.bytes_total, 700);
+        assert_eq!(g.bytes_sent, 700);
+        assert_eq!(g.bytes_recv, 0);
+
+        let top_tot = table.top_sorted(10, now, SortBy::Total);
+        assert_eq!(top_tot.len(), 2);
+        assert_eq!(top_tot[0].total_bytes, 500);
+        assert_eq!(top_tot[1].total_bytes, 200);
     }
 }

@@ -113,3 +113,37 @@ impl DnsCache {
         ip.to_string()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dns_cache_insert_get_display() {
+        let cache = DnsCache::new();
+        let ip: IpAddr = "8.8.8.8".parse().unwrap();
+
+        // Not cached initially
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.display(&ip, true), "8.8.8.8");
+        assert_eq!(cache.display(&ip, false), "8.8.8.8");
+
+        // Insert resolved entry
+        cache.insert(ip, Some("dns.google".to_string()));
+        assert_eq!(cache.get(&ip), Some("dns.google".to_string()));
+        assert_eq!(
+            cache.state(&ip),
+            Some(DnsState::Resolved("dns.google".to_string()))
+        );
+        assert_eq!(cache.display(&ip, true), "dns.google");
+        assert_eq!(cache.display(&ip, false), "8.8.8.8");
+
+        // Insert negative entry
+        let ip2: IpAddr = "1.1.1.1".parse().unwrap();
+        cache.insert(ip2, None);
+        assert_eq!(cache.get(&ip2), None);
+        assert_eq!(cache.state(&ip2), Some(DnsState::Negative));
+        assert_eq!(cache.display(&ip2, true), "1.1.1.1");
+    }
+}
