@@ -163,3 +163,63 @@ pub fn format_iface_table(ifaces: &[IfaceInfo], netns: Option<&str>) -> String {
     }
     s
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_classify_interfaces() {
+        assert_eq!(classify("lo"), IfaceKind::Loopback);
+        assert_eq!(classify("lo:1"), IfaceKind::Loopback);
+        assert_eq!(classify("eth0"), IfaceKind::Ethernet);
+        assert_eq!(classify("eno1"), IfaceKind::Ethernet);
+        assert_eq!(classify("eth0.100"), IfaceKind::Vlan);
+        assert_eq!(classify("vlan10"), IfaceKind::Vlan);
+        assert_eq!(classify("bond0"), IfaceKind::Bond);
+        assert_eq!(classify("br0"), IfaceKind::Bridge);
+        assert_eq!(classify("wlan0"), IfaceKind::Wireless);
+        assert_eq!(classify("veth1234"), IfaceKind::Virtual);
+        assert_eq!(classify("docker0"), IfaceKind::Virtual);
+        assert_eq!(classify("tun0"), IfaceKind::Virtual);
+        assert_eq!(classify("custom0"), IfaceKind::Other);
+    }
+
+    #[test]
+    fn test_iface_kind_as_str() {
+        assert_eq!(IfaceKind::Loopback.as_str(), "lo");
+        assert_eq!(IfaceKind::Ethernet.as_str(), "eth");
+        assert_eq!(IfaceKind::Vlan.as_str(), "vlan");
+        assert_eq!(IfaceKind::Bond.as_str(), "bond");
+        assert_eq!(IfaceKind::Bridge.as_str(), "br");
+        assert_eq!(IfaceKind::Wireless.as_str(), "wifi");
+        assert_eq!(IfaceKind::Virtual.as_str(), "virt");
+        assert_eq!(IfaceKind::Other.as_str(), "other");
+    }
+
+    #[test]
+    fn test_format_iface_table() {
+        let ifaces = vec![
+            IfaceInfo {
+                name: "eth0".to_string(),
+                addrs: vec!["192.168.1.10".parse().unwrap()],
+                kind: IfaceKind::Ethernet,
+                is_up_guess: true,
+            },
+            IfaceInfo {
+                name: "lo".to_string(),
+                addrs: vec!["127.0.0.1".parse().unwrap()],
+                kind: IfaceKind::Loopback,
+                is_up_guess: true,
+            },
+        ];
+
+        let formatted = format_iface_table(&ifaces, Some("testns"));
+        assert!(formatted.contains("netns: testns"));
+        assert!(formatted.contains("eth0"));
+        assert!(formatted.contains("192.168.1.10"));
+        assert!(formatted.contains("lo"));
+        assert!(formatted.contains("127.0.0.1"));
+    }
+}
