@@ -4,6 +4,8 @@
 //! flow tracking, direction, limits, rate windows, top statistics, exports,
 //! DNS caching, and end-to-end pipelines.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
@@ -58,7 +60,7 @@ fn make_ipv4_tcp_frame(
     f.extend_from_slice(&8192u16.to_be_bytes());
     f.extend_from_slice(&0u16.to_be_bytes());
     f.extend_from_slice(&0u16.to_be_bytes());
-    f.extend(std::iter::repeat(0xaa).take(payload_len));
+    f.extend(std::iter::repeat_n(0xaa, payload_len));
     f
 }
 
