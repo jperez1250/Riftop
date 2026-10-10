@@ -70,3 +70,44 @@ fn fixture_directory_exists() {
         "fixtures/pcap must exist for regression fixtures"
     );
 }
+
+#[test]
+fn test_expire_with_out_of_order_past_now_does_not_panic() {
+    use std::time::Duration;
+    let mut table = FlowTable::new();
+    let t_future = Instant::now() + Duration::from_secs(100);
+    let t_past = Instant::now();
+    let local = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+    let remote = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+    table.record(local, remote, 80, 8080, 6, 100, &[local], t_future, None);
+    // expire with a timestamp `t_past` earlier than `t_future` must not panic
+    table.expire(t_past, Duration::from_secs(30));
+    assert_eq!(table.len(), 1);
+}
+
+#[test]
+fn test_rate_window_out_of_order_and_zero_max_age() {
+    use riftop::flow::RateWindow;
+    use std::time::Duration;
+
+    let t0 = Instant::now();
+    let mut rw = RateWindow::new(Duration::from_secs(10));
+
+    // Record sample at t0 + 15s (1000 bytes)
+    rw.add(t0 + Duration::from_secs(15), 1000);
+
+    // Record out-of-order sample at t0 (15 seconds older, outside the 10s window ending at t0 + 15s)
+    rw.add(t0, 500);
+
+    // Calculating rate at t0 + 15s should reflect only the sample at t0 + 15s (1000 bytes over 10s = 100.0)
+    // and not have merged the 15-second-old 500 bytes into the t0 + 15s bucket.
+    let rate = rw.rate(t0 + Duration::from_secs(15));
+    assert!(
+        (rate - 100.0).abs() < f64::EPSILON,
+        "rate was {rate}, expected 100.0"
+    );
+
+    let rw_zero = RateWindow::new(Duration::ZERO);
+    assert_eq!(rw_zero.rate(t0), 0.0);
+}
