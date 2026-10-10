@@ -17,8 +17,13 @@ impl RateWindow {
 
     pub fn add(&mut self, now: Instant, bytes: u64) {
         if let Some((last_ts, last_bytes)) = self.samples.last_mut() {
-            if now.saturating_duration_since(*last_ts) < Duration::from_millis(100) {
-                *last_bytes += bytes;
+            if now >= *last_ts {
+                if now.saturating_duration_since(*last_ts) < Duration::from_millis(100) {
+                    *last_bytes = last_bytes.saturating_add(bytes);
+                    return;
+                }
+            } else if last_ts.saturating_duration_since(now) < Duration::from_millis(100) {
+                *last_bytes = last_bytes.saturating_add(bytes);
                 return;
             }
         }
@@ -30,13 +35,16 @@ impl RateWindow {
 
     #[must_use]
     pub fn rate(&self, now: Instant) -> f64 {
+        if self.max_age.is_zero() {
+            return 0.0;
+        }
         let cutoff = now.checked_sub(self.max_age);
         let total: u64 = self
             .samples
             .iter()
             .filter(|(ts, _)| match cutoff {
-                Some(c) => *ts >= c,
-                None => true,
+                Some(c) => *ts >= c && *ts <= now,
+                None => *ts <= now,
             })
             .map(|(_, b)| *b)
             .sum();
