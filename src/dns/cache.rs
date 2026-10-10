@@ -10,6 +10,26 @@ use crate::dns::worker::WorkerPool;
 const CACHE_TTL: Duration = Duration::from_secs(300);
 const NEGATIVE_TTL: Duration = Duration::from_secs(60);
 
+/// Sanitize untrusted DNS hostname by removing control characters and truncating to RFC 1035 limit (253 bytes).
+fn sanitize_hostname(name: &str) -> Option<String> {
+    let sanitized: String = name.chars().filter(|c| !c.is_control()).collect();
+    if sanitized.is_empty() {
+        return None;
+    }
+    if sanitized.len() > 253 {
+        let mut end = 253;
+        while end > 0 && !sanitized.is_char_boundary(end) {
+            end -= 1;
+        }
+        if end == 0 {
+            return None;
+        }
+        Some(sanitized[..end].to_string())
+    } else {
+        Some(sanitized)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DnsState {
     Resolving,
@@ -72,7 +92,7 @@ impl DnsCache {
     /// Insert or refresh an entry.
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
-        let state = match name {
+        let state = match name.as_deref().and_then(sanitize_hostname) {
             Some(n) => DnsState::Resolved(n),
             None => DnsState::Negative,
         };
@@ -111,5 +131,58 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_hostname_valid() {
+        assert_eq!(
+            sanitize_hostname("example.com"),
+            Some("example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_hostname_strips_control_chars() {
+        let dirty = "\x1b[31mhost.example.com\x1b[0m\n\r\t";
+        assert_eq!(
+            sanitize_hostname(dirty),
+            Some("[31mhost.example.com[0m".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_hostname_all_control_chars_returns_none() {
+        assert_eq!(sanitize_hostname("\n\r\t\x1b\x00"), None);
+    }
+
+    #[test]
+    fn test_sanitize_hostname_truncates_at_253_bytes() {
+        let long_name = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_name);
+        if let Some(res) = sanitized {
+            assert_eq!(res.len(), 253);
+            assert_eq!(res, "a".repeat(253));
+        } else {
+            panic!("expected sanitized hostname to be Some");
+        }
+    }
+
+    #[test]
+    fn test_dns_cache_sanitizes_inserted_names() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
+
+        cache.insert(ip, Some("evil.com\x1b[2J\n".to_string()));
+        assert_eq!(cache.get(&ip), Some("evil.com[2J".to_string()));
+
+        let ip_bad = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 2));
+        cache.insert(ip_bad, Some("\n\r".to_string()));
+        assert_eq!(cache.state(&ip_bad), Some(DnsState::Negative));
     }
 }
