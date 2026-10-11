@@ -238,7 +238,7 @@ impl FlowTable {
 
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
         self.flows
-            .retain(|_, s| now.duration_since(s.last_seen) < max_idle);
+            .retain(|_, s| now.saturating_duration_since(s.last_seen) < max_idle);
     }
 
     #[must_use]
@@ -248,5 +248,32 @@ impl FlowTable {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.flows.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_expire_with_out_of_order_now_does_not_panic() {
+        let t0 = Instant::now();
+        let t1 = t0 + Duration::from_secs(10);
+        let mut table = FlowTable::new();
+        table.record(
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
+            1234,
+            80,
+            6,
+            100,
+            &[],
+            t1,
+            None,
+        );
+        // Expiration check with an earlier timestamp t0 than entry.last_seen (t1)
+        table.expire(t0, Duration::from_secs(30));
+        assert_eq!(table.len(), 1);
     }
 }
