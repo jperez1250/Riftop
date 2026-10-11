@@ -161,3 +161,74 @@ impl FlowStats {
         self.rate_40s.rate(now)
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tcp_counters_observe_and_summary() {
+        let mut counters = TcpCounters::default();
+        assert_eq!(counters.summary(), "");
+
+        counters.observe(TcpFlags {
+            syn: true,
+            fin: false,
+            rst: false,
+            ack: false,
+            psh: false,
+            pure_ack: false,
+            seq: 100,
+            payload_len: 0,
+        });
+        assert_eq!(counters.summary(), "S1 F0 R0 A0 X0");
+
+        // Retransmission detection: same seq with payload_len > 0
+        counters.observe(TcpFlags {
+            syn: false,
+            fin: false,
+            rst: false,
+            ack: false,
+            psh: false,
+            pure_ack: false,
+            seq: 200,
+            payload_len: 100,
+        });
+        counters.observe(TcpFlags {
+            syn: false,
+            fin: false,
+            rst: false,
+            ack: false,
+            psh: false,
+            pure_ack: false,
+            seq: 200,
+            payload_len: 100,
+        });
+        assert_eq!(counters.summary(), "S1 F0 R0 A0 X1");
+    }
+
+    #[test]
+    fn test_flow_stats_recording() {
+        let now = Instant::now();
+        let key = FlowKey::new(
+            "10.0.0.1".parse().unwrap(),
+            "10.0.0.2".parse().unwrap(),
+            1234,
+            80,
+            6,
+        );
+        let mut stats = FlowStats::new(key.clone(), now);
+
+        stats.record_endpoints(now, "10.0.0.1".parse().unwrap(), 1234, 500);
+        stats.record(now, 500, Direction::Sent, None);
+
+        assert_eq!(stats.total_bytes, 500);
+        assert_eq!(stats.sent_bytes, 500);
+        assert_eq!(stats.recv_bytes, 0);
+        assert_eq!(stats.bytes_a_to_b, 500);
+        assert_eq!(stats.bytes_b_to_a, 0);
+        assert_eq!(stats.packets, 1);
+        assert_eq!(stats.duration(), Duration::ZERO);
+    }
+}

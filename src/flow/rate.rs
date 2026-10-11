@@ -46,3 +46,49 @@ impl RateWindow {
         total as f64 / self.max_age.as_secs_f64()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_window_add_and_rate() {
+        let mut rw = RateWindow::new(Duration::from_secs(10));
+        let t0 = Instant::now();
+
+        // Add samples 50ms apart (should merge into same 100ms bucket)
+        rw.add(t0, 500);
+        rw.add(t0 + Duration::from_millis(50), 500);
+
+        assert_eq!(rw.samples.len(), 1);
+        assert_eq!(rw.samples[0].1, 1000);
+
+        // Add sample 200ms later (new bucket)
+        rw.add(t0 + Duration::from_millis(250), 1000);
+        assert_eq!(rw.samples.len(), 2);
+
+        // Total 2000 bytes over 10s window -> 200 B/s
+        let rate = rw.rate(t0 + Duration::from_secs(1));
+        assert!((rate - 200.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_rate_window_cutoff_pruning() {
+        let mut rw = RateWindow::new(Duration::from_secs(2));
+        let t0 = Instant::now();
+
+        rw.add(t0, 1000);
+        rw.add(t0 + Duration::from_secs(3), 2000);
+
+        // First sample at t0 should have been pruned as cutoff is t0 + 1s (3s - 2s)
+        assert_eq!(rw.samples.len(), 1);
+        assert_eq!(rw.samples[0].1, 2000);
+    }
+
+    #[test]
+    fn test_rate_window_zero_total_returns_zero() {
+        let rw = RateWindow::new(Duration::from_secs(10));
+        let now = Instant::now();
+        assert_eq!(rw.rate(now), 0.0);
+    }
+}

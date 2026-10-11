@@ -99,3 +99,126 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::{FlowKey, FlowStats, Snapshot};
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_rate_bps() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: Some(100.0),
+            pps: None,
+        });
+
+        let now = Instant::now();
+        let key = FlowKey::new(
+            "192.168.1.1".parse().unwrap(),
+            "192.168.1.2".parse().unwrap(),
+            80,
+            12345,
+            6,
+        );
+        let mut flow = FlowStats::new(key, now);
+        // Record enough bytes over time to exceed rate threshold
+        flow.record(now, 2000, crate::flow::Direction::Sent, None);
+
+        let snap = Snapshot {
+            flows: vec![flow],
+            globals: Default::default(),
+            taken_at: now,
+        };
+
+        engine.evaluate(&snap, now + Duration::from_secs(1));
+        let messages = engine.latest_messages(5);
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].contains("RATE"));
+    }
+
+    #[test]
+    fn test_alert_engine_pps() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: None,
+            pps: Some(50.0),
+        });
+
+        let t0 = Instant::now();
+        let mut snap = Snapshot {
+            flows: vec![],
+            globals: Default::default(),
+            taken_at: t0,
+        };
+
+        // First evaluation sets baseline
+        snap.globals.packets_accepted = 0;
+        engine.evaluate(&snap, t0);
+        assert_eq!(engine.latest_messages(10).len(), 0);
+
+        // Second evaluation 1s later with 100 packets accepted -> 100 PPS >= 50
+        let t1 = t0 + Duration::from_secs(1);
+        snap.globals.packets_accepted = 100;
+        engine.evaluate(&snap, t1);
+
+        let messages = engine.latest_messages(10);
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].contains("PPS 100 >= 50"));
+    }
+
+    #[test]
+    fn test_alert_engine_deduplication_and_max_keep() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: None,
+            pps: Some(10.0),
+        });
+
+        let mut t = Instant::now();
+        let mut pkts = 0u64;
+
+        for _ in 0..30 {
+            t += Duration::from_secs(1);
+            pkts += 100;
+            let snap = Snapshot {
+                flows: vec![],
+                globals: crate::flow::Globals {
+                    packets_accepted: pkts,
+                    ..Default::default()
+                },
+                taken_at: t,
+            };
+            engine.evaluate(&snap, t);
+        }
+
+        // Deduplication prevents duplicate identical messages from filling queue
+        // Max keep is bounded at 20
+        assert!(engine.recent().count() <= 20);
+    }
+
+    #[test]
+    fn test_alert_engine_time_regression() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: None,
+            pps: Some(10.0),
+        });
+
+        let t0 = Instant::now();
+        let snap = Snapshot {
+            flows: vec![],
+            globals: crate::flow::Globals {
+                packets_accepted: 100,
+                ..Default::default()
+            },
+            taken_at: t0,
+        };
+
+        engine.evaluate(&snap, t0);
+
+        // Time regresses (now < prev)
+        let t_before = t0 - Duration::from_secs(5);
+        // Note: evaluating with regressed timestamp
+        // If this panics, we identify a time regression vulnerability!
+        engine.evaluate(&snap, t_before);
+    }
+}
