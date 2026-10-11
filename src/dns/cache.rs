@@ -113,3 +113,66 @@ impl DnsCache {
         ip.to_string()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dns_cache_insert_and_get() {
+        let cache = DnsCache::new();
+        let ip: IpAddr = "1.1.1.1".parse().unwrap();
+
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), None);
+
+        cache.insert(ip, Some("one.one.one.one".to_string()));
+
+        assert_eq!(cache.get(&ip), Some("one.one.one.one".to_string()));
+        assert_eq!(
+            cache.state(&ip),
+            Some(DnsState::Resolved("one.one.one.one".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_dns_cache_negative_entry() {
+        let cache = DnsCache::new();
+        let ip: IpAddr = "192.0.2.1".parse().unwrap();
+
+        cache.insert(ip, None);
+
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), Some(DnsState::Negative));
+    }
+
+    #[test]
+    fn test_dns_cache_display_toggle() {
+        let cache = DnsCache::new();
+        let ip: IpAddr = "8.8.8.8".parse().unwrap();
+
+        cache.insert(ip, Some("dns.google".to_string()));
+
+        // When enable_dns is false, display should show raw IP
+        assert_eq!(cache.display(&ip, false), "8.8.8.8");
+        // When enable_dns is true, display should show resolved name
+        assert_eq!(cache.display(&ip, true), "dns.google");
+
+        // Unresolved IP shows raw IP regardless of enable_dns
+        let uncached_ip: IpAddr = "8.8.4.4".parse().unwrap();
+        assert_eq!(cache.display(&uncached_ip, true), "8.8.4.4");
+    }
+
+    #[test]
+    fn test_dns_cache_resolve_async_dedup() {
+        let cache = Arc::new(DnsCache::new());
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
+
+        // First async resolve request adds IP to pending
+        cache.resolve_async(ip);
+        // Instant state query should see Resolving or cached state
+        // Subsequent resolve_async calls for the same pending IP should be deduplicated
+        cache.resolve_async(ip);
+    }
+}

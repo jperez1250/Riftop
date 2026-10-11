@@ -28,3 +28,31 @@ pub fn top_ports(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
         service_name(p, 0).map_or_else(|| p.to_string(), |name| format!("{p} ({name})"))
     })
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::{FlowTable, SortBy};
+    use std::net::IpAddr;
+
+    #[test]
+    fn test_top_ports_aggregation() {
+        let now = Instant::now();
+        let mut table = FlowTable::new();
+        table.set_show_ports(true);
+        let src: IpAddr = "10.0.0.1".parse().unwrap();
+        let dst: IpAddr = "10.0.0.2".parse().unwrap();
+
+        table.record(src, dst, 80, 54321, 6, 800, &[], now, None);
+
+        let snap = table.snapshot_sorted(10, now, SortBy::Total);
+        let rows = top_ports(&snap, now, 5);
+
+        assert_eq!(rows.len(), 2);
+        // Port 80 is HTTP
+        let http_row = rows.iter().find(|r| r.label.contains("80")).unwrap();
+        assert_eq!(http_row.bytes, 800);
+        assert!(http_row.label.contains("http"));
+    }
+}
