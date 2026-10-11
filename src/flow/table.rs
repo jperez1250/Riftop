@@ -213,15 +213,23 @@ impl FlowTable {
 
     pub fn top_sorted(&self, n: usize, now: Instant, sort: SortBy) -> Vec<&FlowStats> {
         let mut list: Vec<&FlowStats> = self.flows.values().collect();
-        list.sort_by(|a, b| match sort {
+        let cmp = |a: &&FlowStats, b: &&FlowStats| match sort {
             SortBy::Rate2s => rate_ord(a.rate_2s(now), b.rate_2s(now)),
             SortBy::Rate10s => rate_ord(a.rate_10s(now), b.rate_10s(now)),
             SortBy::Rate40s => rate_ord(a.rate_40s(now), b.rate_40s(now)),
             SortBy::Total => b.total_bytes.cmp(&a.total_bytes),
             SortBy::Source => a.key.a.cmp(&b.key.a),
             SortBy::Destination => a.key.b.cmp(&b.key.b),
-        });
-        list.into_iter().take(n).collect()
+        };
+        // Performance optimization: When requesting top n elements out of N flows (n < N),
+        // use select_nth_unstable_by to partition in O(N) time instead of sorting all N
+        // items in O(N log N). This avoids thousands of unnecessary rate computations.
+        if n < list.len() {
+            list.select_nth_unstable_by(n, cmp);
+            list.truncate(n);
+        }
+        list.sort_by(cmp);
+        list
     }
 
     pub fn snapshot(&self, n: usize, now: Instant) -> Snapshot {
