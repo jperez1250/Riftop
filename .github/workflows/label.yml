@@ -1,7 +1,10 @@
 name: Labeler
 
 on:
+  pull_request:
+    branches: [ main, master ]
   pull_request_target:
+    branches: [ main, master ]
 
 jobs:
   label:
@@ -11,8 +14,6 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/labeler@v5
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
