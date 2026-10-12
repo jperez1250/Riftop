@@ -73,7 +73,7 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => DnsState::Resolved(sanitize_hostname(&n)),
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +111,68 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+/// Sanitize a hostname by stripping control characters and truncating to max 253 bytes at UTF-8 character boundary (RFC 1035).
+#[must_use]
+pub fn sanitize_hostname(name: &str) -> String {
+    let filtered: String = name.chars().filter(|c| !c.is_control()).collect();
+    if filtered.len() <= 253 {
+        filtered
+    } else {
+        let mut end = 253;
+        while !filtered.is_char_boundary(end) {
+            end -= 1;
+        }
+        filtered[..end].to_string()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_hostname_normal() {
+        assert_eq!(sanitize_hostname("example.com"), "example.com");
+        assert_eq!(
+            sanitize_hostname("host-1.sub.domain.org"),
+            "host-1.sub.domain.org"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_hostname_control_chars() {
+        assert_eq!(sanitize_hostname("example.com\n\r\t"), "example.com");
+        assert_eq!(
+            sanitize_hostname("\x1b[2J\x1b[Hmalicious.org\0"),
+            "[2J[Hmalicious.org"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_hostname_rfc1035_length() {
+        let long_name = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_name);
+        assert_eq!(sanitized.len(), 253);
+        assert_eq!(sanitized, "a".repeat(253));
+
+        // UTF-8 multi-byte boundary test near 253 bytes
+        let mut utf8_long = "a".repeat(251);
+        utf8_long.push('🦀'); // 4-byte UTF-8 char (251 + 4 = 255 bytes)
+        let sanitized_utf8 = sanitize_hostname(&utf8_long);
+        assert!(sanitized_utf8.len() <= 253);
+        assert_eq!(sanitized_utf8, "a".repeat(251));
+    }
+
+    #[test]
+    fn test_dns_cache_insert_sanitizes() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
+        cache.insert(ip, Some("evil.com\x1b[2J\n".to_string()));
+        assert_eq!(cache.get(&ip), Some("evil.com[2J".to_string()));
     }
 }

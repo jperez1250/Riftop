@@ -1,0 +1,4 @@
+## 2025-05-18 - Untrusted Reverse DNS Hostname Sanitization
+**Vulnerability:** Reverse DNS responses (PTR records) obtained via `dns_lookup::lookup_addr` were stored directly in `DnsCache` without sanitization. Untrusted DNS payloads containing control characters (e.g. ANSI escape sequences, newlines) or arbitrarily long domain names could cause terminal display injection/disruption in the TUI or memory bloat.
+**Learning:** `dns_lookup::lookup_addr` returns raw domain names provided by external DNS servers. While Rust strings are valid UTF-8, they can still contain ASCII control characters (0..=31, 127) and violate domain name size limits.
+**Prevention:** Always sanitize untrusted network inputs before storing or displaying them. In `src/dns/cache.rs`, `sanitize_hostname` strips control characters (`c.is_control()`) and bounds length to 253 bytes (RFC 1035 max length) at UTF-8 character boundaries during `DnsCache::insert`.
