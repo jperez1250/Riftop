@@ -1,0 +1,4 @@
+## 2025-03-01 - Preventing std::time::Instant Panics on Timestamp Regression
+**Issue:** Using `Instant::duration_since` on flow timestamps or snapshots causes runtime panics when packet timestamps arrive out of order or regress relative to system/snapshot times. In addition, in `RateWindow::add`, calling `now.saturating_duration_since(*last_ts)` when `now < *last_ts` underflows to zero, incorrectly merging old out-of-order packets into the latest sample bucket.
+**Fix:** Replaced `duration_since` with `saturating_duration_since` in `FlowTable::expire` and `AlertEngine::evaluate`. In `RateWindow::add`, perform explicit directional comparison (`now >= *last_ts`) before calculating bucket intervals, and check `max_age.is_zero()` in `RateWindow::rate`.
+**Prevention:** Always use `saturating_duration_since` or explicit timestamp order checks when handling packet timestamps that may not be strictly monotonic. Add unit tests with regressed timestamps.
