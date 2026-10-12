@@ -8,7 +8,9 @@ pub enum Aggregate {
     Destination,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+// `FlowKey` implements `Copy` since all inner fields (`IpAddr`, `u16`, `u8`) are `Copy`.
+// This allows passing keys by value in hot packet processing loops without unnecessary heap clones.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct FlowKey {
     pub a: IpAddr,
     pub b: IpAddr,
