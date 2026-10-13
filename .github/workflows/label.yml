@@ -3,6 +3,8 @@ name: Labeler
 on:
   pull_request:
     branches: [ main, master ]
+  pull_request_target:
+    branches: [ main, master ]
 
 jobs:
   label:
