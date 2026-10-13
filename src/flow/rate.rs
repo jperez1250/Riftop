@@ -17,7 +17,12 @@ impl RateWindow {
 
     pub fn add(&mut self, now: Instant, bytes: u64) {
         if let Some((last_ts, last_bytes)) = self.samples.last_mut() {
-            if now.saturating_duration_since(*last_ts) < Duration::from_millis(100) {
+            let diff = if now >= *last_ts {
+                now - *last_ts
+            } else {
+                *last_ts - now
+            };
+            if diff < Duration::from_millis(100) {
                 *last_bytes += bytes;
                 return;
             }
@@ -44,5 +49,23 @@ impl RateWindow {
             return 0.0;
         }
         total as f64 / self.max_age.as_secs_f64()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_window_add_old_packet_does_not_merge_into_future_bucket() {
+        let mut rw = RateWindow::new(Duration::from_secs(10));
+        let t0 = Instant::now();
+        let t10 = t0 + Duration::from_secs(10);
+
+        rw.add(t10, 1000);
+        rw.add(t0 + Duration::from_secs(5), 500);
+
+        assert_eq!(rw.samples.len(), 2);
     }
 }

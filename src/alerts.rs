@@ -61,7 +61,7 @@ impl AlertEngine {
         if let Some(pps_lim) = self.config.pps {
             let pkts = snap.globals.packets_accepted;
             if let Some(prev) = self.last_check {
-                let dt = now.duration_since(prev).as_secs_f64().max(0.001);
+                let dt = now.saturating_duration_since(prev).as_secs_f64().max(0.001);
                 let delta = pkts.saturating_sub(self.last_pkt_count) as f64;
                 let pps = delta / dt;
                 if pps >= pps_lim {
@@ -97,5 +97,27 @@ impl AlertEngine {
             .take(n)
             .map(|a| a.message.clone())
             .collect()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::FlowTable;
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_out_of_order_now_does_not_panic() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            pps: Some(100.0),
+            ..Default::default()
+        });
+        let table = FlowTable::new();
+        let now = Instant::now();
+        let snap = table.snapshot(10, now);
+
+        engine.evaluate(&snap, now + Duration::from_secs(10));
+        engine.evaluate(&snap, now);
     }
 }
