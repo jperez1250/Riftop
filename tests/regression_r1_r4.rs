@@ -1,5 +1,3 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::manual_repeat_n)]
-
 //! Regression R1 (rate windows) and R4 (direction from local address).
 
 use std::net::{IpAddr, Ipv4Addr};
