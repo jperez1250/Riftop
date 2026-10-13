@@ -99,3 +99,109 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::FlowTable;
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_empty_and_default() {
+        let mut engine = AlertEngine::new(AlertConfig::default());
+        let table = FlowTable::new();
+        let now = Instant::now();
+        let snap = table.snapshot(10, now);
+
+        engine.evaluate(&snap, now);
+        assert_eq!(engine.recent().count(), 0);
+        assert!(engine.latest_messages(5).is_empty());
+    }
+
+    #[test]
+    fn test_alert_engine_rate_and_pps_triggering() {
+        let config = AlertConfig {
+            rate_bps: Some(1000.0),
+            pps: Some(100.0),
+        };
+        let mut engine = AlertEngine::new(config);
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+        // Add flow data that creates a high rate
+        for i in 0..150 {
+            table.record(
+                a,
+                b,
+                1000,
+                80,
+                6,
+                100,
+                &[a],
+                t0 + Duration::from_millis(i * 10),
+                None,
+            );
+        }
+
+        let t1 = t0 + Duration::from_secs(1);
+        let snap1 = table.snapshot(10, t1);
+
+        // First evaluation records baseline pkt count for PPS
+        engine.evaluate(&snap1, t1);
+
+        // Record more packets to trigger PPS threshold
+        for i in 0..200 {
+            table.record(
+                a,
+                b,
+                1000,
+                80,
+                6,
+                100,
+                &[a],
+                t1 + Duration::from_millis(i * 5),
+                None,
+            );
+        }
+
+        let t2 = t1 + Duration::from_secs(1);
+        let snap2 = table.snapshot(10, t2);
+        engine.evaluate(&snap2, t2);
+
+        let msgs = engine.latest_messages(10);
+        assert!(!msgs.is_empty(), "Expected alerts to be generated");
+    }
+
+    #[test]
+    fn test_alert_engine_deduplication_and_eviction() {
+        let config = AlertConfig {
+            rate_bps: Some(10.0),
+            pps: None,
+        };
+        let mut engine = AlertEngine::new(config);
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+
+        // Create 25 unique flow destinations to test capacity eviction (>20 max_keep)
+        for i in 0..25 {
+            let b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, (i + 2) as u8));
+            table.record(a, b, 1000, 80, 6, 5000, &[a], t0, None);
+        }
+
+        let snap = table.snapshot(50, t0);
+        engine.evaluate(&snap, t0);
+
+        // Re-evaluating immediately should deduplicate and not add new messages
+        let count_before = engine.recent().count();
+        engine.evaluate(&snap, t0);
+        assert_eq!(engine.recent().count(), count_before);
+
+        // Ensure max_keep limit (20) is respected
+        assert!(engine.recent().count() <= 20);
+    }
+}
