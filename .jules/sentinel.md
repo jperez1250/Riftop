@@ -1,0 +1,4 @@
+## 2025-02-18 - Untrusted DNS Hostname Terminal Injection
+**Vulnerability:** Untrusted reverse DNS PTR responses inserted into `DnsCache` can contain ASCII control characters (such as ANSI escape sequences `\x1b[...]`, newlines `\r`, `\n`, null bytes `\0`) or unbounded payload sizes, leading to terminal sequence injection / TUI distortion or excessive memory usage.
+**Learning:** Formatting or displaying unparsed network strings directly in terminal user interfaces or plain text log exports allows malicious PTR records to execute ANSI control codes.
+**Prevention:** Always sanitize untrusted DNS hostnames by stripping control characters (`c.is_control()`) and enforcing RFC 1035 length bounds (253 bytes) at valid UTF-8 character boundaries (`is_char_boundary`) before inserting into cache or display layers.
