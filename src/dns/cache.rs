@@ -73,7 +73,7 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => DnsState::Resolved(sanitize_hostname(&n)),
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +111,70 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+#[must_use]
+pub fn sanitize_hostname(s: &str) -> String {
+    let mut clean = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next(); // skip '['
+                while let Some(&next_c) = chars.peek() {
+                    chars.next();
+                    if (0x40..=0x7e).contains(&(next_c as u32)) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if !c.is_control() {
+            clean.push(c);
+        }
+    }
+
+    if clean.len() <= 253 {
+        clean
+    } else {
+        let mut end = 253;
+        while !clean.is_char_boundary(end) {
+            end -= 1;
+        }
+        clean[..end].to_string()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_dns_cache_sanitizes_control_characters() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4));
+        let dirty_name = "host.example.com\x1b[2J\r\n\t\0";
+
+        cache.insert(ip, Some(dirty_name.to_string()));
+
+        let cached = cache.get(&ip).unwrap();
+        assert_eq!(cached, "host.example.com");
+    }
+
+    #[test]
+    fn test_dns_cache_bounds_hostname_length() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(5, 6, 7, 8));
+        // Create 300 character long hostname
+        let long_name = "a".repeat(300) + ".example.com";
+
+        cache.insert(ip, Some(long_name));
+
+        let cached = cache.get(&ip).unwrap();
+        assert!(cached.len() <= 253);
     }
 }

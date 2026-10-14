@@ -250,3 +250,25 @@ impl FlowTable {
         self.flows.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_expire_out_of_order_timestamp_does_not_panic() {
+        let mut table = FlowTable::new();
+        let t1 = Instant::now() + Duration::from_secs(10);
+        let t0 = Instant::now();
+        let a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+        table.record(a, b, 80, 80, 6, 100, &[a], t1, None);
+        assert_eq!(table.len(), 1);
+
+        // Expire with t0 (which is earlier than t1 / flow.last_seen)
+        table.expire(t0, Duration::from_secs(60));
+        assert_eq!(table.len(), 1);
+    }
+}
