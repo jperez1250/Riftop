@@ -224,6 +224,7 @@ pub fn bpf_expression(user: Option<&str>) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -234,5 +235,19 @@ mod tests {
         } else {
             panic!("failed to parse IPv4 CIDR");
         }
+    }
+
+    #[test]
+    fn test_bpf_expression_empty_or_whitespace() {
+        assert_eq!(bpf_expression(None), "ip or ip6");
+        assert_eq!(bpf_expression(Some("")), "ip or ip6");
+        assert_eq!(bpf_expression(Some("   ")), "ip or ip6");
+        assert_eq!(bpf_expression(Some("port 80")), "(port 80) and (ip or ip6)");
+    }
+
+    #[test]
+    fn test_net_filter_v6_parse_invalid() {
+        assert!(NetFilterV6::parse("invalid").is_err());
+        assert!(NetFilterV6::parse("2001:db8::/129").is_err());
     }
 }

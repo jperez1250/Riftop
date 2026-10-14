@@ -148,3 +148,38 @@ pub fn write_csv(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::FlowTable;
+    use std::time::Instant;
+
+    #[test]
+    fn test_export_empty_flow_table() {
+        let table = FlowTable::new();
+        let now = Instant::now();
+
+        let mut json_buf = Vec::new();
+        let mut csv_buf = Vec::new();
+        let mut text_buf = Vec::new();
+
+        write_json(&mut json_buf, &table, now, 10, "eth0", SortBy::Rate10s).unwrap();
+        write_csv(&mut csv_buf, &table, now, 10, SortBy::Rate10s, false).unwrap();
+        write_text(&mut text_buf, &table, now, 10, SortBy::Rate10s, false).unwrap();
+
+        let json_str = String::from_utf8(json_buf).unwrap();
+        let csv_str = String::from_utf8(csv_buf).unwrap();
+
+        assert!(json_str.contains("\"flows\":["));
+        assert!(csv_str.contains("src,dst,sport,dport"));
+    }
+
+    #[test]
+    fn test_json_escape_control_chars() {
+        assert_eq!(json_escape("hello\nworld"), "hello\\nworld");
+        assert_eq!(json_escape("tab\tseparated"), "tab\\tseparated");
+        assert_eq!(json_escape("quote\"mark"), "quote\\\"mark");
+    }
+}
