@@ -8,7 +8,9 @@ pub enum Aggregate {
     Destination,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+// FlowKey is Copy because all contained types (IpAddr, u16, u8) are Copy.
+// Deriving Copy avoids heap/memcpy overheads and allows cheap pass-by-value.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct FlowKey {
     pub a: IpAddr,
     pub b: IpAddr,
