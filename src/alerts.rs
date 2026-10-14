@@ -61,7 +61,7 @@ impl AlertEngine {
         if let Some(pps_lim) = self.config.pps {
             let pkts = snap.globals.packets_accepted;
             if let Some(prev) = self.last_check {
-                let dt = now.duration_since(prev).as_secs_f64().max(0.001);
+                let dt = now.saturating_duration_since(prev).as_secs_f64().max(0.001);
                 let delta = pkts.saturating_sub(self.last_pkt_count) as f64;
                 let pps = delta / dt;
                 if pps >= pps_lim {
@@ -97,5 +97,65 @@ impl AlertEngine {
             .take(n)
             .map(|a| a.message.clone())
             .collect()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::IpAddr;
+    use std::time::Duration;
+
+    use crate::flow::FlowTable;
+
+    #[test]
+    fn test_alert_engine_evaluate_time_regression_no_panic() {
+        let cfg = AlertConfig {
+            rate_bps: Some(100.0),
+            pps: Some(10.0),
+        };
+        let mut engine = AlertEngine::new(cfg);
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let a = IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1));
+        let b = IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 2));
+
+        table.record(a, b, 1000, 80, 6, 1000, &[a], t0, None);
+        let snap1 = table.snapshot(10, t0);
+
+        engine.evaluate(&snap1, t0 + Duration::from_secs(5));
+        assert!(!engine.latest_messages(10).is_empty());
+
+        // Evaluate at an earlier timestamp (regression)
+        let snap2 = table.snapshot(10, t0);
+        engine.evaluate(&snap2, t0);
+    }
+
+    #[test]
+    fn test_alert_engine_deduplication() {
+        let cfg = AlertConfig {
+            rate_bps: Some(10.0),
+            pps: None,
+        };
+        let mut engine = AlertEngine::new(cfg);
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let a = IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1));
+        let b = IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 2));
+
+        table.record(a, b, 1000, 80, 6, 1000, &[a], t0, None);
+        let snap = table.snapshot(10, t0);
+
+        engine.evaluate(&snap, t0 + Duration::from_secs(1));
+        let msgs_count1 = engine.latest_messages(10).len();
+
+        engine.evaluate(&snap, t0 + Duration::from_secs(1));
+        let msgs_count2 = engine.latest_messages(10).len();
+
+        assert_eq!(
+            msgs_count1, msgs_count2,
+            "Identical alert messages should be deduplicated"
+        );
     }
 }

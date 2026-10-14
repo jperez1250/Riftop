@@ -113,3 +113,42 @@ impl DnsCache {
         ip.to_string()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_dns_cache_negative_caching() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 99));
+
+        // Insert negative entry (None name)
+        cache.insert(ip, None);
+
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), Some(DnsState::Negative));
+        assert_eq!(cache.display(&ip, true), "192.0.2.99");
+    }
+
+    #[test]
+    fn test_dns_cache_resolving_state() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 100));
+
+        let mut guard = cache.inner.lock();
+        guard.insert(
+            ip,
+            CacheEntry {
+                state: DnsState::Resolving,
+                inserted: Instant::now(),
+            },
+        );
+        drop(guard);
+
+        assert_eq!(cache.state(&ip), Some(DnsState::Resolving));
+        assert_eq!(cache.get(&ip), None);
+    }
+}

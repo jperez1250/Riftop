@@ -46,3 +46,38 @@ impl RateWindow {
         total as f64 / self.max_age.as_secs_f64()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_window_zero_max_age() {
+        let rw = RateWindow::new(Duration::ZERO);
+        let now = Instant::now();
+        assert_eq!(rw.rate(now), 0.0);
+    }
+
+    #[test]
+    fn test_rate_window_out_of_order_samples() {
+        let mut rw = RateWindow::new(Duration::from_secs(10));
+        let t0 = Instant::now();
+        rw.add(t0 + Duration::from_secs(5), 100);
+        // Add an earlier timestamp after a later one
+        rw.add(t0 + Duration::from_secs(2), 50);
+        let rate = rw.rate(t0 + Duration::from_secs(5));
+        assert!(rate >= 0.0);
+    }
+
+    #[test]
+    fn test_rate_window_now_in_past() {
+        let mut rw = RateWindow::new(Duration::from_secs(5));
+        let t0 = Instant::now();
+        rw.add(t0 + Duration::from_secs(10), 500);
+        // Evaluating rate at an earlier `now` timestamp (t0 < sample timestamp)
+        // Note: checked_sub(5s) yields None or cutoff <= t0, so sample at t0+10s is still >= cutoff if cutoff is None or small
+        let rate = rw.rate(t0);
+        assert!(rate >= 0.0);
+    }
+}
