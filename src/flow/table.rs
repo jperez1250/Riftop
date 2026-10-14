@@ -125,10 +125,11 @@ impl FlowTable {
             Direction::Received => self.globals.bytes_recv += bytes,
             Direction::Unknown => {}
         }
+        // FlowKey is Copy; using or_insert_with_key avoids key cloning/copying when entry exists.
         let entry = self
             .flows
-            .entry(key.clone())
-            .or_insert_with(|| FlowStats::new(key, now));
+            .entry(key)
+            .or_insert_with_key(|k| FlowStats::new(*k, now));
         entry.record_endpoints(now, src, sport, bytes);
         entry.record(now, bytes, dir, tcp);
     }
@@ -182,10 +183,11 @@ impl FlowTable {
                         Direction::Received => self.globals.bytes_recv += bytes,
                         Direction::Unknown => {}
                     }
+                    // FlowKey is Copy; using or_insert_with_key avoids key cloning/copying when entry exists.
                     let entry = self
                         .flows
-                        .entry(key.clone())
-                        .or_insert_with(|| FlowStats::new(key, now));
+                        .entry(key)
+                        .or_insert_with_key(|k| FlowStats::new(*k, now));
                     entry.record_endpoints(now, src, sport, bytes);
                     entry.record(now, bytes, dir, tcp);
                     return true;
@@ -221,7 +223,9 @@ impl FlowTable {
             SortBy::Source => a.key.a.cmp(&b.key.a),
             SortBy::Destination => a.key.b.cmp(&b.key.b),
         });
-        list.into_iter().take(n).collect()
+        // Truncate in-place to avoid allocating an intermediate Vec when slicing top n entries.
+        list.truncate(n);
+        list
     }
 
     pub fn snapshot(&self, n: usize, now: Instant) -> Snapshot {
