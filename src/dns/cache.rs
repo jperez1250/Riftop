@@ -10,6 +10,21 @@ use crate::dns::worker::WorkerPool;
 const CACHE_TTL: Duration = Duration::from_secs(300);
 const NEGATIVE_TTL: Duration = Duration::from_secs(60);
 
+/// Sanitize DNS hostname by removing control characters and bounding length to 253 bytes.
+#[must_use]
+pub fn sanitize_hostname(s: &str) -> String {
+    let sanitized: String = s.chars().filter(|c| !c.is_control()).collect();
+    if sanitized.len() > 253 {
+        let mut end = 253;
+        while !sanitized.is_char_boundary(end) {
+            end -= 1;
+        }
+        sanitized[..end].to_string()
+    } else {
+        sanitized
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DnsState {
     Resolving,
@@ -73,7 +88,14 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => {
+                let clean = sanitize_hostname(&n);
+                if clean.is_empty() {
+                    DnsState::Negative
+                } else {
+                    DnsState::Resolved(clean)
+                }
+            }
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +133,43 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_hostname_control_chars() {
+        let input = "host\x1b\x07\r\n.example.com";
+        let cleaned = sanitize_hostname(input);
+        assert_eq!(cleaned, "host.example.com");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_length_bound() {
+        let long_host = "a".repeat(300);
+        let cleaned = sanitize_hostname(&long_host);
+        assert_eq!(cleaned.len(), 253);
+    }
+
+    #[test]
+    fn test_sanitize_hostname_multibyte_utf8_bound() {
+        let multi_byte = "🦀".repeat(100);
+        let cleaned = sanitize_hostname(&multi_byte);
+        assert!(cleaned.len() <= 253);
+        assert!(std::str::from_utf8(cleaned.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn test_insert_control_only_hostname_becomes_negative() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+        cache.insert(ip, Some("\x1b\r\n".to_string()));
+        assert_eq!(cache.state(&ip), Some(DnsState::Negative));
+        assert_eq!(cache.get(&ip), None);
     }
 }
