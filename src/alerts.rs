@@ -61,7 +61,7 @@ impl AlertEngine {
         if let Some(pps_lim) = self.config.pps {
             let pkts = snap.globals.packets_accepted;
             if let Some(prev) = self.last_check {
-                let dt = now.duration_since(prev).as_secs_f64().max(0.001);
+                let dt = now.saturating_duration_since(prev).as_secs_f64().max(0.001);
                 let delta = pkts.saturating_sub(self.last_pkt_count) as f64;
                 let pps = delta / dt;
                 if pps >= pps_lim {
@@ -97,5 +97,150 @@ impl AlertEngine {
             .take(n)
             .map(|a| a.message.clone())
             .collect()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::{FlowKey, FlowStats, Globals};
+    use std::net::IpAddr;
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_config_defaults() {
+        let config = AlertConfig::default();
+        assert!(config.rate_bps.is_none());
+        assert!(config.pps.is_none());
+    }
+
+    #[test]
+    fn test_alert_engine_rate_threshold() {
+        let config = AlertConfig {
+            rate_bps: Some(100.0),
+            pps: None,
+        };
+        let mut engine = AlertEngine::new(config);
+
+        let now = Instant::now();
+        let ip_a: IpAddr = "192.168.1.1".parse().unwrap();
+        let ip_b: IpAddr = "192.168.1.2".parse().unwrap();
+        let key = FlowKey::new(ip_a, ip_b, 80, 443, 6);
+
+        let mut flow = FlowStats::new(key, now);
+        // Record 10,000 bytes so rate_10s exceeds threshold (100 B/s)
+        flow.record(now, 10000, crate::flow::Direction::Sent, None);
+
+        let snap = Snapshot {
+            flows: vec![flow],
+            globals: Globals::default(),
+            taken_at: now,
+        };
+
+        engine.evaluate(&snap, now);
+
+        let msgs = engine.latest_messages(10);
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].contains("RATE 192.168.1.1"));
+    }
+
+    #[test]
+    fn test_alert_engine_pps_threshold() {
+        let config = AlertConfig {
+            rate_bps: None,
+            pps: Some(50.0),
+        };
+        let mut engine = AlertEngine::new(config);
+
+        let now1 = Instant::now();
+        let snap1 = Snapshot {
+            flows: vec![],
+            globals: Globals {
+                packets_accepted: 10,
+                ..Default::default()
+            },
+            taken_at: now1,
+        };
+
+        engine.evaluate(&snap1, now1);
+        assert_eq!(engine.latest_messages(10).len(), 0);
+
+        let now2 = now1 + Duration::from_secs(1);
+        let snap2 = Snapshot {
+            flows: vec![],
+            globals: Globals {
+                packets_accepted: 110, // delta = 100 pkts in 1 sec -> 100 PPS >= 50 PPS
+                ..Default::default()
+            },
+            taken_at: now2,
+        };
+
+        engine.evaluate(&snap2, now2);
+        let msgs = engine.latest_messages(10);
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].contains("PPS 100 >= 50"));
+    }
+
+    #[test]
+    fn test_alert_engine_pps_time_regression() {
+        let config = AlertConfig {
+            rate_bps: None,
+            pps: Some(50.0),
+        };
+        let mut engine = AlertEngine::new(config);
+
+        let now1 = Instant::now();
+        let snap1 = Snapshot {
+            flows: vec![],
+            globals: Globals {
+                packets_accepted: 10,
+                ..Default::default()
+            },
+            taken_at: now1,
+        };
+        engine.evaluate(&snap1, now1);
+
+        // Simulate time regression where now2 < now1
+        let now2 = now1 - Duration::from_secs(5);
+        let snap2 = Snapshot {
+            flows: vec![],
+            globals: Globals {
+                packets_accepted: 2000,
+                ..Default::default()
+            },
+            taken_at: now2,
+        };
+
+        // Must not panic due to saturating_duration_since
+        engine.evaluate(&snap2, now2);
+    }
+
+    #[test]
+    fn test_alert_engine_deduplication_and_max_keep() {
+        let mut engine = AlertEngine::new(AlertConfig::default());
+        let now = Instant::now();
+
+        // Push duplicates
+        for _ in 0..5 {
+            engine.push(Alert {
+                when: now,
+                message: "DUP_ALERT".to_string(),
+            });
+        }
+        assert_eq!(engine.latest_messages(10).len(), 1);
+
+        // Push more than max_keep (20) distinct alerts
+        for i in 0..25 {
+            engine.push(Alert {
+                when: now,
+                message: format!("ALERT_{i}"),
+            });
+        }
+
+        let msgs = engine.latest_messages(30);
+        assert_eq!(msgs.len(), 20); // max_keep = 20
+        assert_eq!(msgs[0], "ALERT_24"); // newest alert is front
+        assert_eq!(msgs.len(), engine.recent().count());
     }
 }

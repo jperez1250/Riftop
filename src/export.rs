@@ -85,6 +85,37 @@ pub fn write_json(
     Ok(())
 }
 
+pub fn write_csv(
+    out: &mut dyn Write,
+    table: &FlowTable,
+    now: Instant,
+    limit: usize,
+    sort_mode: SortBy,
+    use_bytes: bool,
+) -> io::Result<()> {
+    let rate_unit_str = if use_bytes { "bytes_sec" } else { "bits_sec" };
+    writeln!(out, "src,dst,sport,dport,proto,sent,recv,total,rate_2s_{rate_unit_str},rate_10s_{rate_unit_str},rate_40s_{rate_unit_str}")?;
+    for s in table.top_sorted(limit, now, sort_mode) {
+        let mult = if use_bytes { 1.0 } else { 8.0 };
+        writeln!(
+            out,
+            "{},{},{},{},{},{},{},{},{:.3},{:.3},{:.3}",
+            s.key.a,
+            s.key.b,
+            s.key.port_a,
+            s.key.port_b,
+            s.key.protocol,
+            s.sent_bytes,
+            s.recv_bytes,
+            s.total_bytes,
+            s.rate_2s(now) * mult,
+            s.rate_10s(now) * mult,
+            s.rate_40s(now) * mult
+        )?;
+    }
+    Ok(())
+}
+
 pub fn write_text(
     out: &mut dyn Write,
     table: &FlowTable,
@@ -118,33 +149,85 @@ pub fn write_text(
     Ok(())
 }
 
-pub fn write_csv(
-    out: &mut dyn Write,
-    table: &FlowTable,
-    now: Instant,
-    limit: usize,
-    sort_mode: SortBy,
-    use_bytes: bool,
-) -> io::Result<()> {
-    let rate_unit_str = if use_bytes { "bytes_sec" } else { "bits_sec" };
-    writeln!(out, "src,dst,sport,dport,proto,sent,recv,total,rate_2s_{rate_unit_str},rate_10s_{rate_unit_str},rate_40s_{rate_unit_str}")?;
-    for s in table.top_sorted(limit, now, sort_mode) {
-        let mult = if use_bytes { 1.0 } else { 8.0 };
-        writeln!(
-            out,
-            "{},{},{},{},{},{},{},{},{:.3},{:.3},{:.3}",
-            s.key.a,
-            s.key.b,
-            s.key.port_a,
-            s.key.port_b,
-            s.key.protocol,
-            s.sent_bytes,
-            s.recv_bytes,
-            s.total_bytes,
-            s.rate_2s(now) * mult,
-            s.rate_10s(now) * mult,
-            s.rate_40s(now) * mult
-        )?;
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    #[test]
+    fn test_output_format_parse() {
+        assert_eq!(OutputFormat::parse("json"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("JSON"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("text"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("plain"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("PLAIN"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("csv"), OutputFormat::Csv);
+        assert_eq!(OutputFormat::parse("tui"), OutputFormat::Tui);
+        assert_eq!(OutputFormat::parse("unknown_format"), OutputFormat::Tui);
     }
-    Ok(())
+
+    #[test]
+    fn test_json_escape() {
+        assert_eq!(json_escape("hello"), "hello");
+        assert_eq!(json_escape("hello \"world\""), "hello \\\"world\\\"");
+        assert_eq!(json_escape("path\\file"), "path\\\\file");
+        assert_eq!(json_escape("line1\nline2\r\ttab"), "line1\\nline2\\r\\ttab");
+        assert_eq!(json_escape("\x01"), "\\u0001");
+    }
+
+    fn setup_test_table() -> (FlowTable, Instant) {
+        let mut table = FlowTable::new();
+        table.set_show_ports(true);
+        let now = Instant::now();
+        let src: IpAddr = "10.0.0.1".parse().unwrap();
+        let dst: IpAddr = "10.0.0.2".parse().unwrap();
+        table.record(src, dst, 1234, 80, 6, 1000, &[src], now, None);
+        (table, now)
+    }
+
+    #[test]
+    fn test_write_json() {
+        let (table, now) = setup_test_table();
+        let mut buf = Vec::new();
+        write_json(&mut buf, &table, now, 10, "eth0", SortBy::Rate10s).unwrap();
+        let json_str = String::from_utf8(buf).unwrap();
+
+        assert!(json_str.contains("\"interface\":\"eth0\""));
+        assert!(json_str.contains("\"packets_seen\":1"));
+        assert!(json_str.contains("\"flow_count\":1"));
+        assert!(json_str.contains("\"src\":\"10.0.0.1\""));
+        assert!(json_str.contains("\"dst\":\"10.0.0.2\""));
+        assert!(json_str.contains("\"sport\":1234"));
+        assert!(json_str.contains("\"dport\":80"));
+    }
+
+    #[test]
+    fn test_write_text() {
+        let (table, now) = setup_test_table();
+        let mut buf = Vec::new();
+        write_text(&mut buf, &table, now, 10, SortBy::Rate10s, true).unwrap();
+        let text_str = String::from_utf8(buf).unwrap();
+
+        assert!(text_str.contains("# packets_seen=1 accepted=1"));
+        assert!(text_str.contains("10.0.0.1\t10.0.0.2\t"));
+    }
+
+    #[test]
+    fn test_write_csv() {
+        let (table, now) = setup_test_table();
+
+        // Test bytes mode
+        let mut buf_bytes = Vec::new();
+        write_csv(&mut buf_bytes, &table, now, 10, SortBy::Rate10s, true).unwrap();
+        let csv_bytes = String::from_utf8(buf_bytes).unwrap();
+        assert!(csv_bytes.starts_with("src,dst,sport,dport,proto,sent,recv,total,rate_2s_bytes_sec,rate_10s_bytes_sec,rate_40s_bytes_sec"));
+        assert!(csv_bytes.contains("10.0.0.1,10.0.0.2,1234,80,6,1000,0,1000,"));
+
+        // Test bits mode
+        let mut buf_bits = Vec::new();
+        write_csv(&mut buf_bits, &table, now, 10, SortBy::Rate10s, false).unwrap();
+        let csv_bits = String::from_utf8(buf_bits).unwrap();
+        assert!(csv_bits.starts_with("src,dst,sport,dport,proto,sent,recv,total,rate_2s_bits_sec,rate_10s_bits_sec,rate_40s_bits_sec"));
+    }
 }

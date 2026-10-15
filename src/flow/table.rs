@@ -238,7 +238,7 @@ impl FlowTable {
 
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
         self.flows
-            .retain(|_, s| now.duration_since(s.last_seen) < max_idle);
+            .retain(|_, s| now.saturating_duration_since(s.last_seen) < max_idle);
     }
 
     #[must_use]
@@ -248,5 +248,47 @@ impl FlowTable {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.flows.is_empty()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sort_by_parse() {
+        assert_eq!(SortBy::parse("2s"), SortBy::Rate2s);
+        assert_eq!(SortBy::parse("40s"), SortBy::Rate40s);
+        assert_eq!(SortBy::parse("source"), SortBy::Source);
+        assert_eq!(SortBy::parse("src"), SortBy::Source);
+        assert_eq!(SortBy::parse("destination"), SortBy::Destination);
+        assert_eq!(SortBy::parse("dst"), SortBy::Destination);
+        assert_eq!(SortBy::parse("total"), SortBy::Total);
+        assert_eq!(SortBy::parse("10s"), SortBy::Rate10s);
+        assert_eq!(SortBy::parse("invalid"), SortBy::Rate10s);
+    }
+
+    #[test]
+    fn test_flow_table_expire_time_regression() {
+        let mut table = FlowTable::new();
+        let now1 = Instant::now();
+        let src: IpAddr = "10.0.0.1".parse().unwrap();
+        let dst: IpAddr = "10.0.0.2".parse().unwrap();
+
+        table.record(src, dst, 80, 443, 6, 100, &[], now1, None);
+        assert_eq!(table.len(), 1);
+
+        // Expire with a timestamp in the past (time regression)
+        let now_past = now1 - Duration::from_secs(10);
+        table.expire(now_past, Duration::from_secs(5));
+
+        // saturating_duration_since yields 0 < 5s, so flow is retained without panicking
+        assert_eq!(table.len(), 1);
+
+        // Expire with future timestamp beyond max_idle
+        let now_future = now1 + Duration::from_secs(10);
+        table.expire(now_future, Duration::from_secs(5));
+        assert_eq!(table.len(), 0);
     }
 }
