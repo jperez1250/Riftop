@@ -1,8 +1,8 @@
-name: Pull Request Labeler
+name: label
 
 on:
   pull_request:
-    branches: [ main, master ]
+  pull_request_target:
 
 jobs:
   label:
@@ -11,11 +11,8 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Apply labels
-        uses: actions/labeler@v5
+      - uses: actions/checkout@v4
+      - uses: actions/labeler@v5
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
           sync-labels: false
