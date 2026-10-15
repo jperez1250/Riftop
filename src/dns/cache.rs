@@ -73,7 +73,7 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => DnsState::Resolved(sanitize_hostname(&n)),
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +111,59 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+/// Sanitize a reverse DNS hostname string by stripping control characters and bounding length to 253 bytes (RFC 1035).
+pub fn sanitize_hostname(name: &str) -> String {
+    let mut clean = String::with_capacity(name.len().min(253));
+    for c in name.chars() {
+        if c.is_control() {
+            continue;
+        }
+        if clean.len() + c.len_utf8() > 253 {
+            break;
+        }
+        clean.push(c);
+    }
+    clean
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_insert_sanitizes_control_characters() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10));
+        cache.insert(ip, Some("evil\x1b[31mhost\r\n.com".to_string()));
+        assert_eq!(cache.get(&ip).unwrap(), "evil[31mhost.com");
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_insert_truncates_long_hostname() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 11));
+        let long_name = "a".repeat(300);
+        cache.insert(ip, Some(long_name));
+        let resolved = cache.get(&ip).unwrap();
+        assert_eq!(resolved.len(), 253);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_insert_truncates_utf8_safely() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 12));
+        // 252 ASCII 'a's + 2-byte UTF-8 char 'é' (254 bytes total if pushed)
+        let name = format!("{}é", "a".repeat(252));
+        cache.insert(ip, Some(name));
+        let resolved = cache.get(&ip).unwrap();
+        assert_eq!(resolved.len(), 252);
+        assert_eq!(resolved, "a".repeat(252));
     }
 }
