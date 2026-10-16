@@ -13,13 +13,14 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Checkout PR head
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Label pull request
-        uses: actions/labeler@v5
+        uses: actions/labeler@v4
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
-          sync-labels: true
+          configuration-path: .github/labeler.yml
+          dot: true
