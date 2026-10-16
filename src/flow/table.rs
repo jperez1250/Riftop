@@ -238,7 +238,7 @@ impl FlowTable {
 
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
         self.flows
-            .retain(|_, s| now.duration_since(s.last_seen) < max_idle);
+            .retain(|_, s| now.saturating_duration_since(s.last_seen) < max_idle);
     }
 
     #[must_use]
@@ -248,5 +248,30 @@ impl FlowTable {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.flows.is_empty()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_expire_regressed_timestamp_handles_past_instants() {
+        let mut table = FlowTable::new();
+        let t1 = Instant::now();
+        let t2 = t1 + Duration::from_secs(10);
+
+        let ip_a = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
+        let ip_b = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2));
+
+        // Record a flow at t2
+        table.record(ip_a, ip_b, 80, 12345, 6, 100, &[], t2, None);
+        assert_eq!(table.len(), 1);
+
+        // Expire with 'now' = t1, which is earlier than last_seen (t2)
+        table.expire(t1, Duration::from_secs(5));
+        assert_eq!(table.len(), 1);
     }
 }
