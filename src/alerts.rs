@@ -99,3 +99,105 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::{FlowTable, Globals, Snapshot};
+    use std::net::IpAddr;
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_rate_threshold() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: Some(100.0),
+            pps: None,
+        });
+
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let ip_a: IpAddr = "192.168.1.1".parse().unwrap();
+        let ip_b: IpAddr = "192.168.1.2".parse().unwrap();
+
+        table.record(ip_a, ip_b, 1234, 80, 6, 2000, &[ip_a], t0, None);
+
+        let snap = table.snapshot(10, t0);
+        engine.evaluate(&snap, t0);
+
+        let msgs = engine.latest_messages(10);
+        assert_eq!(msgs.len(), 1, "Expected 1 rate alert trigger");
+
+        // Duplicate evaluation at same instant should be de-duped
+        engine.evaluate(&snap, t0);
+        let msgs_after = engine.latest_messages(10);
+        assert_eq!(msgs_after.len(), 1, "Duplicate alert should be suppressed");
+    }
+
+    #[test]
+    fn test_alert_engine_pps_threshold_and_out_of_order_time() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: None,
+            pps: Some(10.0),
+        });
+
+        let t0 = Instant::now();
+        let t1 = t0 + Duration::from_secs(1);
+
+        let snap1 = Snapshot {
+            flows: vec![],
+            globals: Globals {
+                packets_seen: 100,
+                packets_accepted: 100,
+                bytes_total: 1000,
+                bytes_sent: 500,
+                bytes_recv: 500,
+            },
+            taken_at: t0,
+        };
+
+        engine.evaluate(&snap1, t0);
+
+        let snap2 = Snapshot {
+            flows: vec![],
+            globals: Globals {
+                packets_seen: 200,
+                packets_accepted: 200,
+                bytes_total: 2000,
+                bytes_sent: 1000,
+                bytes_recv: 1000,
+            },
+            taken_at: t1,
+        };
+
+        engine.evaluate(&snap2, t1);
+        let msgs = engine.latest_messages(10);
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].contains("PPS 100"));
+    }
+
+    #[test]
+    fn test_alert_engine_capacity_limit() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: Some(1.0),
+            pps: None,
+        });
+
+        let t0 = Instant::now();
+        for i in 0..25 {
+            let mut table = FlowTable::new();
+            let ip_a: IpAddr = format!("10.0.0.{i}").parse().unwrap();
+            let ip_b: IpAddr = "10.0.0.254".parse().unwrap();
+            table.record(ip_a, ip_b, 1000 + i as u16, 80, 6, 1000, &[ip_a], t0, None);
+            let snap = table.snapshot(10, t0);
+            engine.evaluate(&snap, t0);
+        }
+
+        let msgs = engine.latest_messages(30);
+        assert_eq!(
+            msgs.len(),
+            20,
+            "Alert engine should retain at most 20 recent alerts"
+        );
+    }
+}
