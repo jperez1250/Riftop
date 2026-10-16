@@ -1,4 +1,4 @@
-# Labeler configuration for GitHub Actions PR labeling
+# Labeler configuration for GitHub Actions PR labeling (actions/labeler@v4)
 
 'area: flow':
   - 'src/flow/**/*'
