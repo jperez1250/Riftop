@@ -72,7 +72,7 @@ impl DnsCache {
     /// Insert or refresh an entry.
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
-        let state = match name {
+        let state = match name.map(sanitize_hostname) {
             Some(n) => DnsState::Resolved(n),
             None => DnsState::Negative,
         };
@@ -111,5 +111,50 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+/// Sanitize untrusted DNS hostnames by stripping control characters
+/// and bounding length to RFC 1035 limit (253 bytes) at UTF-8 boundaries.
+fn sanitize_hostname(name: String) -> String {
+    let sanitized: String = name.chars().filter(|c| !c.is_control()).collect();
+    if sanitized.len() <= 253 {
+        sanitized
+    } else {
+        let mut end = 253;
+        while !sanitized.is_char_boundary(end) {
+            end -= 1;
+        }
+        sanitized[..end].to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn sanitize_strips_control_chars_and_bounds_length() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
+        // Control characters stripped
+        cache.insert(ip, Some("host\nname\r\t\0.com".to_string()));
+        assert_eq!(cache.get(&ip), Some("hostname.com".to_string()));
+
+        // Oversized hostname truncated to 253 bytes
+        let long_name = "a".repeat(300);
+        cache.insert(ip, Some(long_name));
+        let retrieved = cache.get(&ip).unwrap_or_default();
+        assert_eq!(retrieved.len(), 253);
+
+        // Oversized hostname with multi-byte UTF-8 character near boundary
+        let prefix = "a".repeat(251);
+        let utf8_name = format!("{prefix}🦀bbb"); // 🦀 is 4 bytes (251..255)
+        cache.insert(ip, Some(utf8_name));
+        let utf8_retrieved = cache.get(&ip).unwrap_or_default();
+        assert_eq!(utf8_retrieved.len(), 251);
+        assert_eq!(utf8_retrieved, prefix);
     }
 }
