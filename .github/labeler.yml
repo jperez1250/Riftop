@@ -1,28 +1,30 @@
 # Labeler configuration for GitHub Actions PR labeling
 
 'area: flow':
-  - any: ['src/flow/**/*']
+  - 'src/flow/**/*'
 
 'area: capture':
-  - any: ['src/capture/**/*']
+  - 'src/capture/**/*'
 
 'area: ui':
-  - any: ['src/ui/**/*']
+  - 'src/ui/**/*'
 
 'area: config':
-  - any: ['src/config/**/*']
+  - 'src/config/**/*'
 
 'area: dns':
-  - any: ['src/dns/**/*']
+  - 'src/dns/**/*'
 
 'area: top':
-  - any: ['src/top/**/*']
+  - 'src/top/**/*'
 
 'area: tests':
-  - any: ['tests/**/*']
+  - 'tests/**/*'
 
 'area: docs':
-  - any: ['docs/**/*', '*.md']
+  - 'docs/**/*'
+  - '*.md'
 
 'area: ci':
-  - any: ['.github/**/*', 'scripts/**/*']
+  - '.github/**/*'
+  - 'scripts/**/*'
