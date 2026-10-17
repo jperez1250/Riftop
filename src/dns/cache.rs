@@ -69,10 +69,11 @@ impl DnsCache {
         })
     }
 
-    /// Insert or refresh an entry.
+    /// Insert or refresh an entry, sanitizing the resolved hostname.
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
-        let state = match name {
+        let sanitized_name = name.and_then(|n| sanitize_hostname(&n));
+        let state = match sanitized_name {
             Some(n) => DnsState::Resolved(n),
             None => DnsState::Negative,
         };
@@ -111,5 +112,78 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+/// Sanitize hostname from DNS lookup by stripping control characters and bounding length to 253 bytes (RFC 1035).
+#[must_use]
+pub fn sanitize_hostname(name: &str) -> Option<String> {
+    let sanitized: String = name.chars().filter(|c| !c.is_control()).collect();
+    let trimmed = sanitized.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.len() <= 253 {
+        Some(trimmed.to_string())
+    } else {
+        let mut end = 253;
+        while !trimmed.is_char_boundary(end) {
+            end -= 1;
+        }
+        Some(trimmed[..end].to_string())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_hostname_valid() {
+        assert_eq!(
+            sanitize_hostname("example.com"),
+            Some("example.com".to_string())
+        );
+        assert_eq!(
+            sanitize_hostname("  sub.example.com  "),
+            Some("sub.example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_hostname_control_characters() {
+        assert_eq!(
+            sanitize_hostname("\x1b[31m malicious.com \x1b[0m"),
+            Some("[31m malicious.com [0m".to_string())
+        );
+        assert_eq!(
+            sanitize_hostname("host\r\nname\0.com"),
+            Some("hostname.com".to_string())
+        );
+        assert_eq!(sanitize_hostname("\t\r\n"), None);
+    }
+
+    #[test]
+    fn test_sanitize_hostname_max_length() {
+        let long_name = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_name).unwrap();
+        assert_eq!(sanitized.len(), 253);
+
+        // UTF-8 boundary test
+        let unicode_long = "🦀".repeat(100); // 4 bytes each, 400 bytes total
+        let sanitized_unicode = sanitize_hostname(&unicode_long).unwrap();
+        assert!(sanitized_unicode.len() <= 253);
+        assert!(std::str::from_utf8(sanitized_unicode.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn test_dns_cache_insert_sanitizes() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10));
+
+        cache.insert(ip, Some("\x1b[2Jmalicious.local\n".to_string()));
+        assert_eq!(cache.get(&ip), Some("[2Jmalicious.local".to_string()));
     }
 }
