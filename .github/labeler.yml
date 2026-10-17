@@ -1,4 +1,4 @@
-# Labeler configuration for GitHub Actions PR labeling (v5 schema)
+# Labeler configuration for GitHub Actions PR labeling
 
 'area: flow':
   - changed-files:
