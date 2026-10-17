@@ -99,3 +99,97 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::{FlowKey, FlowStats, Globals};
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_rate_and_pps() {
+        let config = AlertConfig {
+            rate_bps: Some(100.0),
+            pps: Some(10.0),
+        };
+        let mut engine = AlertEngine::new(config);
+        let t0 = Instant::now();
+
+        let key = FlowKey::new(
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
+            1000,
+            2000,
+            6,
+        );
+        let mut flow = FlowStats::new(key, t0);
+        // Add bytes to trigger rate alert
+        flow.record(t0, 2000, crate::flow::Direction::Sent, None);
+
+        let snap = Snapshot {
+            flows: vec![flow],
+            globals: Globals {
+                packets_seen: 100,
+                packets_accepted: 100,
+                bytes_total: 2000,
+                bytes_sent: 2000,
+                bytes_recv: 0,
+            },
+            taken_at: t0,
+        };
+
+        engine.evaluate(&snap, t0);
+
+        // Next evaluation at t0 + 1s with packet count jump
+        let t1 = t0 + Duration::from_secs(1);
+        let snap2 = Snapshot {
+            flows: vec![],
+            globals: Globals {
+                packets_seen: 150,
+                packets_accepted: 150,
+                bytes_total: 2000,
+                bytes_sent: 2000,
+                bytes_recv: 0,
+            },
+            taken_at: t1,
+        };
+
+        engine.evaluate(&snap2, t1);
+
+        let messages = engine.latest_messages(5);
+        assert!(!messages.is_empty());
+        assert!(messages.iter().any(|m| m.contains("PPS")));
+    }
+
+    #[test]
+    fn test_alert_engine_time_regression() {
+        let config = AlertConfig {
+            rate_bps: None,
+            pps: Some(10.0),
+        };
+        let mut engine = AlertEngine::new(config);
+        let t0 = Instant::now();
+        let t1 = t0 + Duration::from_secs(10);
+
+        let snap = Snapshot {
+            flows: vec![],
+            globals: Globals {
+                packets_seen: 10,
+                packets_accepted: 10,
+                bytes_total: 100,
+                bytes_sent: 100,
+                bytes_recv: 0,
+            },
+            taken_at: t1,
+        };
+
+        // First evaluate set last_check to t1
+        engine.evaluate(&snap, t1);
+
+        // Second evaluate calls with t0 (where t0 < t1)
+        // Testing how AlertEngine handles backward time step in now (dt calculation)
+        engine.evaluate(&snap, t0);
+    }
+}

@@ -250,3 +250,65 @@ impl FlowTable {
         self.flows.is_empty()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sort_by_parse() {
+        assert_eq!(SortBy::parse("2s"), SortBy::Rate2s);
+        assert_eq!(SortBy::parse("40s"), SortBy::Rate40s);
+        assert_eq!(SortBy::parse("source"), SortBy::Source);
+        assert_eq!(SortBy::parse("src"), SortBy::Source);
+        assert_eq!(SortBy::parse("destination"), SortBy::Destination);
+        assert_eq!(SortBy::parse("dst"), SortBy::Destination);
+        assert_eq!(SortBy::parse("total"), SortBy::Total);
+        assert_eq!(SortBy::parse("10s"), SortBy::Rate10s);
+        assert_eq!(SortBy::parse("unknown"), SortBy::Rate10s);
+    }
+
+    #[test]
+    fn test_flow_table_record_and_snapshot() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let ip_a = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10));
+        let ip_b = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 20));
+
+        table.record(ip_a, ip_b, 12345, 80, 6, 100, &[ip_a], now, None);
+
+        assert_eq!(table.len(), 1);
+        assert!(!table.is_empty());
+
+        let globals = table.globals();
+        assert_eq!(globals.packets_seen, 1);
+        assert_eq!(globals.packets_accepted, 1);
+        assert_eq!(globals.bytes_total, 100);
+        assert_eq!(globals.bytes_sent, 100);
+        assert_eq!(globals.bytes_recv, 0);
+
+        let snap = table.snapshot(10, now);
+        assert_eq!(snap.flows.len(), 1);
+
+        let top = table.top(5, now);
+        assert_eq!(top.len(), 1);
+    }
+
+    #[test]
+    fn test_flow_table_expire_time_regression() {
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let t1 = t0 + Duration::from_secs(10);
+        let ip_a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let ip_b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+        // Flow seen at t1
+        table.record(ip_a, ip_b, 1000, 2000, 6, 50, &[], t1, None);
+
+        // Attempting to expire using a past timestamp t0 (t0 < t1)
+        // Testing that expiration handles backward time without panicking
+        table.expire(t0, Duration::from_secs(5));
+    }
+}
