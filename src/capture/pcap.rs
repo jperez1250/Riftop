@@ -45,15 +45,15 @@ pub fn process_pcap_file_filtered(
     loop {
         match cap.next_packet() {
             Ok(packet) => {
-                #[allow(clippy::cast_sign_loss)]
-                let pkt_sec = packet.header.ts.tv_sec as u64;
-                #[allow(clippy::cast_sign_loss)]
-                let pkt_usec = packet.header.ts.tv_usec as u64;
+                let pkt_sec = u64::try_from(packet.header.ts.tv_sec).unwrap_or(0);
+                let pkt_usec = u64::try_from(packet.header.ts.tv_usec).unwrap_or(0);
                 let pkt_ts = Duration::from_secs(pkt_sec) + Duration::from_micros(pkt_usec);
 
                 let first = *first_ts.get_or_insert(pkt_ts);
                 let elapsed_in_pcap = pkt_ts.saturating_sub(first);
-                let when = base_instant + elapsed_in_pcap;
+                let when = base_instant
+                    .checked_add(elapsed_in_pcap)
+                    .unwrap_or(base_instant);
 
                 if let DecodeResult::Ip(ep) = decode_frame(linktype, packet.data) {
                     table.record_filtered(
