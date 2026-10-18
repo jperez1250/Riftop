@@ -1,0 +1,3 @@
+## 2025-05-18 - Pre-allocate HashMap and Vec capacity in TOP views
+**Learning:** Top aggregation functions (`top_hosts`, `top_ports`, and `top_protocols`) collect flow stats into temporary `HashMap`s every snapshot interval. Without `HashMap::with_capacity`, frequent rehashing allocations occur when processing high flow counts. Similarly, `rank()` constructed output vectors via `.collect()` without pre-allocation.
+**Action:** Always pre-allocate `HashMap` capacity using `HashMap::with_capacity(snap.flows.len() * 2)` for per-endpoint flow aggregation and pre-allocate `Vec` capacity in result transformers to eliminate runtime heap allocations in hot aggregation paths.

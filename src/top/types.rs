@@ -50,16 +50,19 @@ where
 {
     let mut v: Vec<_> = map.into_iter().collect();
     v.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
-    v.into_iter()
-        .take(n)
-        .map(|(k, (bytes, r2, r10, r40))| TopRow {
+    let take_len = n.min(v.len());
+    // Pre-allocate capacity for the top N result rows to avoid Vec reallocations
+    let mut results = Vec::with_capacity(take_len);
+    for (k, (bytes, r2, r10, r40)) in v.into_iter().take(take_len) {
+        results.push(TopRow {
             label: label(k),
             bytes,
             rate_2s: r2,
             rate_10s: r10,
             rate_40s: r40,
-        })
-        .collect()
+        });
+    }
+    results
 }
 
 #[must_use]
