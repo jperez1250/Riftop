@@ -1,4 +1,4 @@
-name: Labeler
+name: label
 
 on:
   pull_request:
@@ -12,6 +12,6 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/labeler@v5
+      - uses: actions/labeler@v4
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
