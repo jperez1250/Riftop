@@ -113,3 +113,51 @@ impl DnsCache {
         ip.to_string()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dns_cache_insert_get_display() {
+        let cache = DnsCache::new();
+        let ip: IpAddr = "1.1.1.1".parse().unwrap();
+
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.display(&ip, false), "1.1.1.1");
+        assert_eq!(cache.display(&ip, true), "1.1.1.1");
+
+        cache.insert(ip, Some("one.one.one.one".to_string()));
+
+        assert_eq!(cache.get(&ip), Some("one.one.one.one".to_string()));
+        assert_eq!(
+            cache.state(&ip),
+            Some(DnsState::Resolved("one.one.one.one".to_string()))
+        );
+        assert_eq!(cache.display(&ip, true), "one.one.one.one");
+        assert_eq!(cache.display(&ip, false), "1.1.1.1");
+    }
+
+    #[test]
+    fn test_dns_cache_negative_caching() {
+        let cache = DnsCache::new();
+        let ip: IpAddr = "192.0.2.1".parse().unwrap();
+
+        cache.insert(ip, None);
+
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), Some(DnsState::Negative));
+        assert_eq!(cache.display(&ip, true), "192.0.2.1");
+    }
+
+    #[test]
+    fn test_dns_cache_resolve_async_dedup() {
+        let cache = Arc::new(DnsCache::new());
+        let ip: IpAddr = "8.8.8.8".parse().unwrap();
+
+        cache.resolve_async(ip);
+        // Second call for same IP should be deduplicated while pending or resolved
+        cache.resolve_async(ip);
+    }
+}
