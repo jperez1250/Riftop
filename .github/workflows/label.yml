@@ -1,6 +1,8 @@
 name: Labeler
 
-on: [pull_request_target]
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -8,12 +10,11 @@ permissions:
 
 jobs:
   label:
+    name: label
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - uses: actions/labeler@v5
+      - uses: actions/labeler@v4
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           configuration-path: .github/labeler.yml
