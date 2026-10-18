@@ -238,7 +238,7 @@ impl FlowTable {
 
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
         self.flows
-            .retain(|_, s| now.duration_since(s.last_seen) < max_idle);
+            .retain(|_, s| now.saturating_duration_since(s.last_seen) < max_idle);
     }
 
     #[must_use]
@@ -248,5 +248,92 @@ impl FlowTable {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.flows.is_empty()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sort_by_parse() {
+        assert_eq!(SortBy::parse("2s"), SortBy::Rate2s);
+        assert_eq!(SortBy::parse("40s"), SortBy::Rate40s);
+        assert_eq!(SortBy::parse("src"), SortBy::Source);
+        assert_eq!(SortBy::parse("source"), SortBy::Source);
+        assert_eq!(SortBy::parse("dst"), SortBy::Destination);
+        assert_eq!(SortBy::parse("destination"), SortBy::Destination);
+        assert_eq!(SortBy::parse("total"), SortBy::Total);
+        assert_eq!(SortBy::parse("unknown"), SortBy::Rate10s);
+    }
+
+    #[test]
+    fn test_flow_table_record_and_globals() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let src: IpAddr = "10.0.0.1".parse().unwrap();
+        let dst: IpAddr = "10.0.0.2".parse().unwrap();
+
+        table.record(src, dst, 1234, 80, 6, 500, &[src], now, None);
+
+        let g = table.globals();
+        assert_eq!(g.packets_seen, 1);
+        assert_eq!(g.packets_accepted, 1);
+        assert_eq!(g.bytes_total, 500);
+        assert_eq!(g.bytes_sent, 500);
+        assert_eq!(g.bytes_recv, 0);
+        assert_eq!(table.len(), 1);
+        assert!(!table.is_empty());
+    }
+
+    #[test]
+    fn test_flow_table_sorting_options() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+
+        let src1: IpAddr = "10.0.0.1".parse().unwrap();
+        let dst1: IpAddr = "192.168.1.1".parse().unwrap();
+
+        let src2: IpAddr = "10.0.0.2".parse().unwrap();
+        let dst2: IpAddr = "192.168.1.2".parse().unwrap();
+
+        table.record(src1, dst1, 1000, 80, 6, 100, &[], now, None);
+        table.record(src2, dst2, 1000, 80, 6, 500, &[], now, None);
+
+        let top_total = table.top_sorted(2, now, SortBy::Total);
+        assert_eq!(top_total.len(), 2);
+        assert_eq!(top_total[0].total_bytes, 500);
+        assert_eq!(top_total[1].total_bytes, 100);
+
+        let top_src = table.top_sorted(2, now, SortBy::Source);
+        assert_eq!(top_src[0].key.a, src1);
+        assert_eq!(top_src[1].key.a, src2);
+
+        let top_dst = table.top_sorted(2, now, SortBy::Destination);
+        assert_eq!(top_dst[0].key.b, dst1);
+        assert_eq!(top_dst[1].key.b, dst2);
+    }
+
+    #[test]
+    fn test_flow_table_expire_and_timestamp_regression() {
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let src: IpAddr = "10.0.0.1".parse().unwrap();
+        let dst: IpAddr = "10.0.0.2".parse().unwrap();
+
+        table.record(src, dst, 1234, 80, 6, 100, &[], t0, None);
+
+        // Expire after 10s idle time
+        let t1 = t0 + Duration::from_secs(10);
+        table.expire(t1, Duration::from_secs(5));
+        assert_eq!(table.len(), 0);
+
+        // Record again and test with regressed timestamp (t_past < t0)
+        table.record(src, dst, 1234, 80, 6, 100, &[], t0, None);
+        let t_past = t0 - Duration::from_secs(5);
+        table.expire(t_past, Duration::from_secs(5));
+        // Using saturating_duration_since prevents panic when timestamps regress
+        assert_eq!(table.len(), 1);
     }
 }

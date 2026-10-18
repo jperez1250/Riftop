@@ -99,3 +99,103 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::{FlowTable, SortBy};
+    use std::net::IpAddr;
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_default_config_no_alerts() {
+        let mut engine = AlertEngine::new(AlertConfig::default());
+        let table = FlowTable::new();
+        let now = Instant::now();
+        let snap = table.snapshot(10, now);
+
+        engine.evaluate(&snap, now);
+        assert_eq!(engine.recent().count(), 0);
+        assert!(engine.latest_messages(5).is_empty());
+    }
+
+    #[test]
+    fn test_alert_engine_pps_threshold_and_dedup() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: None,
+            pps: Some(100.0),
+        });
+
+        let start = Instant::now();
+        let mut table = FlowTable::new();
+        let src: IpAddr = "192.168.1.1".parse().unwrap();
+        let dst: IpAddr = "10.0.0.1".parse().unwrap();
+
+        // Initial evaluation establishes baseline pkt_count and last_check
+        let snap1 = table.snapshot_sorted(10, start, SortBy::Rate10s);
+        engine.evaluate(&snap1, start);
+        assert_eq!(engine.recent().count(), 0);
+
+        // Record 500 packets over 1 second (500 pps > 100 pps threshold)
+        let t1 = start + Duration::from_secs(1);
+        for _ in 0..500 {
+            table.record(src, dst, 1000, 80, 6, 64, &[], t1, None);
+        }
+        let snap2 = table.snapshot_sorted(10, t1, SortBy::Rate10s);
+        engine.evaluate(&snap2, t1);
+
+        assert_eq!(engine.recent().count(), 1);
+        let msg = &engine.latest_messages(1)[0];
+        assert!(msg.contains("PPS"));
+
+        // Evaluate again with identical state: duplicate message should be de-duplicated
+        engine.evaluate(&snap2, t1);
+        assert_eq!(engine.recent().count(), 1);
+    }
+
+    #[test]
+    fn test_alert_engine_rate_threshold_and_max_keep() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: Some(100.0),
+            pps: None,
+        });
+
+        let start = Instant::now();
+        let mut table = FlowTable::new();
+
+        // Create multiple flows exceeding 100 Bps rate_10s
+        for i in 1..=30 {
+            let src: IpAddr = format!("10.0.0.{i}").parse().unwrap();
+            let dst: IpAddr = "192.168.1.1".parse().unwrap();
+            table.record(src, dst, 1000 + i as u16, 80, 6, 2000, &[], start, None);
+        }
+
+        let snap = table.snapshot_sorted(50, start, SortBy::Rate10s);
+        engine.evaluate(&snap, start);
+
+        // max_keep is 20, so recent alerts should be capped at 20
+        assert!(engine.recent().count() <= 20);
+        assert_eq!(engine.latest_messages(10).len(), 10);
+    }
+
+    #[test]
+    fn test_alert_engine_time_regression_handling() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: None,
+            pps: Some(10.0),
+        });
+
+        let start = Instant::now();
+        let table = FlowTable::new();
+        let snap = table.snapshot(10, start);
+
+        // Set baseline at start
+        engine.evaluate(&snap, start);
+
+        // Evaluate at a regressed timestamp (before start)
+        let regressed = start - Duration::from_secs(5);
+        // Using saturating_duration_since prevents panic when timestamps regress
+        engine.evaluate(&snap, regressed);
+    }
+}
