@@ -1,28 +1,48 @@
 # Labeler v5 configuration for GitHub Actions PR labeling
 
 'area: flow':
-  - any: ['src/flow/**/*']
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/flow/**/*'
 
 'area: capture':
-  - any: ['src/capture/**/*']
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/capture/**/*'
 
 'area: ui':
-  - any: ['src/ui/**/*']
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/ui/**/*'
 
 'area: config':
-  - any: ['src/config/**/*']
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/config/**/*'
 
 'area: dns':
-  - any: ['src/dns/**/*']
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/dns/**/*'
 
 'area: top':
-  - any: ['src/top/**/*']
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/top/**/*'
 
 'area: tests':
-  - any: ['tests/**/*']
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'tests/**/*'
 
 'area: docs':
-  - any: ['docs/**/*', '*.md']
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**/*'
+          - '*.md'
 
 'area: ci':
-  - any: ['.github/**/*', 'scripts/**/*']
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**/*'
+          - 'scripts/**/*'
