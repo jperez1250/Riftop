@@ -2,31 +2,38 @@
 
 'area: flow':
   - changed-files:
-      - any-glob-to-any-file: 'src/flow/**/*'
+      - any-glob-to-any-file:
+          - 'src/flow/**/*'
 
 'area: capture':
   - changed-files:
-      - any-glob-to-any-file: 'src/capture/**/*'
+      - any-glob-to-any-file:
+          - 'src/capture/**/*'
 
 'area: ui':
   - changed-files:
-      - any-glob-to-any-file: 'src/ui/**/*'
+      - any-glob-to-any-file:
+          - 'src/ui/**/*'
 
 'area: config':
   - changed-files:
-      - any-glob-to-any-file: 'src/config/**/*'
+      - any-glob-to-any-file:
+          - 'src/config/**/*'
 
 'area: dns':
   - changed-files:
-      - any-glob-to-any-file: 'src/dns/**/*'
+      - any-glob-to-any-file:
+          - 'src/dns/**/*'
 
 'area: top':
   - changed-files:
-      - any-glob-to-any-file: 'src/top/**/*'
+      - any-glob-to-any-file:
+          - 'src/top/**/*'
 
 'area: tests':
   - changed-files:
-      - any-glob-to-any-file: 'tests/**/*'
+      - any-glob-to-any-file:
+          - 'tests/**/*'
 
 'area: docs':
   - changed-files:
