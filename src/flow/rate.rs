@@ -17,7 +17,7 @@ impl RateWindow {
 
     pub fn add(&mut self, now: Instant, bytes: u64) {
         if let Some((last_ts, last_bytes)) = self.samples.last_mut() {
-            if now.saturating_duration_since(*last_ts) < Duration::from_millis(100) {
+            if now >= *last_ts && now.duration_since(*last_ts) < Duration::from_millis(100) {
                 *last_bytes += bytes;
                 return;
             }
@@ -30,6 +30,9 @@ impl RateWindow {
 
     #[must_use]
     pub fn rate(&self, now: Instant) -> f64 {
+        if self.max_age.is_zero() {
+            return 0.0;
+        }
         let cutoff = now.checked_sub(self.max_age);
         let total: u64 = self
             .samples
@@ -44,5 +47,31 @@ impl RateWindow {
             return 0.0;
         }
         total as f64 / self.max_age.as_secs_f64()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_out_of_order_sample_does_not_merge() {
+        let mut rw = RateWindow::new(Duration::from_secs(10));
+        let t0 = Instant::now();
+        rw.add(t0 + Duration::from_secs(10), 1000);
+        // Packet from the past (5 seconds ago relative to latest sample)
+        rw.add(t0 + Duration::from_secs(5), 500);
+
+        // The latest sample (1000 bytes) should not have merged the 500 bytes
+        assert_eq!(rw.samples[0].1, 1000);
+    }
+
+    #[test]
+    fn test_zero_max_age_rate_does_not_panic_or_inf() {
+        let mut rw = RateWindow::new(Duration::ZERO);
+        let t0 = Instant::now();
+        rw.add(t0, 1000);
+        assert_eq!(rw.rate(t0), 0.0);
     }
 }

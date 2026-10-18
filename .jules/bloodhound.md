@@ -1,0 +1,4 @@
+## 2025-02-18 - Out-of-Order Sample Merging & Duration Underflow Panics
+**Issue:** `now.saturating_duration_since(*last_ts)` in `RateWindow::add` evaluates to `0` when `now < *last_ts`, causing out-of-order packets older than 100ms to mistakenly merge into the latest sample bucket. Additionally, `RateWindow::rate` divided by zero when `max_age` was zero duration.
+**Fix:** Compare timestamps directionally with `now >= *last_ts` before checking `now.duration_since(*last_ts) < Duration::from_millis(100)`, check `max_age.is_zero()` in `RateWindow::rate`, and use `saturating_duration_since` in `FlowTable::expire` and `AlertEngine::evaluate`.
+**Prevention:** Always verify directional ordering before comparing durations with sub-second thresholds to prevent `saturating_duration_since` from clamping negative time differences to 0 and improperly triggering proximity conditions.
