@@ -1,4 +1,4 @@
-name: Label PRs
+name: label
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
 
 jobs:
   label:
-    name: Label PR
+    name: label
     runs-on: ubuntu-latest
     permissions:
       contents: read
