@@ -97,3 +97,41 @@ pub fn rate_bar(rate: f64, max_rate: f64, width: usize) -> String {
     let filled = ((frac * width as f64).round() as usize).min(width);
     format!("{}{}", "#".repeat(filled), " ".repeat(width - filled))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_rate_and_units() {
+        assert_eq!(format_rate(0.0), "0.00 b");
+        assert_eq!(format_rate(100.0), "800 b");
+        assert_eq!(format_rate_units(1000.0, true), "1.00 KB/s");
+        assert_eq!(format_rate_units(1234567.0, true), "1.23 MB/s");
+        assert_eq!(format_rate_units(500.0, false), "4.00 Kb");
+    }
+
+    #[test]
+    fn test_format_bytes() {
+        assert_eq!(format_bytes(0), "0.00 B");
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(1536), "1.50 KB");
+        assert_eq!(format_bytes(104_857_600), "100 MB");
+    }
+
+    #[test]
+    fn test_format_duration() {
+        assert_eq!(format_duration(Duration::from_secs(42)), "42s");
+        assert_eq!(format_duration(Duration::from_secs(330)), "5m30s");
+        assert_eq!(format_duration(Duration::from_secs(7500)), "2h05m");
+    }
+
+    #[test]
+    fn test_rate_bar() {
+        assert_eq!(rate_bar(10.0, 100.0, 0), "");
+        assert_eq!(rate_bar(0.0, 100.0, 10), "          ");
+        assert_eq!(rate_bar(50.0, 100.0, 10), "#####     ");
+        assert_eq!(rate_bar(100.0, 100.0, 10), "##########");
+    }
+}
