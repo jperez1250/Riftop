@@ -8,7 +8,7 @@ pub enum Aggregate {
     Destination,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct FlowKey {
     pub a: IpAddr,
     pub b: IpAddr,
