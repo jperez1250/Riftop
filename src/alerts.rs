@@ -99,3 +99,96 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::FlowTable;
+    use std::net::IpAddr;
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_rate_threshold() {
+        let config = AlertConfig {
+            rate_bps: Some(100.0),
+            pps: None,
+        };
+        let mut engine = AlertEngine::new(config);
+        let now = Instant::now();
+
+        let mut table = FlowTable::new();
+        let ip_a: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip_b: IpAddr = "10.0.0.2".parse().unwrap();
+
+        // Record enough bytes to exceed 100 B/s on 10s window
+        table.record(ip_a, ip_b, 80, 80, 6, 2000, &[ip_a], now, None);
+
+        let snap = table.snapshot(10, now);
+        engine.evaluate(&snap, now);
+
+        let msgs = engine.latest_messages(10);
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].contains("RATE"));
+    }
+
+    #[test]
+    fn test_alert_engine_pps_threshold() {
+        let config = AlertConfig {
+            rate_bps: None,
+            pps: Some(10.0), // 10 pps
+        };
+        let mut engine = AlertEngine::new(config);
+        let start = Instant::now();
+
+        let mut table = FlowTable::new();
+        let ip_a: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip_b: IpAddr = "10.0.0.2".parse().unwrap();
+
+        // Initial check at t=0 (first evaluation records last_check and last_pkt_count)
+        let snap0 = table.snapshot(10, start);
+        engine.evaluate(&snap0, start);
+        assert_eq!(engine.latest_messages(10).len(), 0);
+
+        // Add 100 packets 1 second later
+        let t1 = start + Duration::from_secs(1);
+        for _ in 0..100 {
+            table.record(ip_a, ip_b, 80, 80, 6, 64, &[ip_a], t1, None);
+        }
+
+        let snap1 = table.snapshot(10, t1);
+        engine.evaluate(&snap1, t1);
+
+        let msgs = engine.latest_messages(10);
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].contains("PPS 100 >= 10"));
+    }
+
+    #[test]
+    fn test_alert_deduplication_and_max_keep() {
+        let mut engine = AlertEngine::new(AlertConfig::default());
+        let now = Instant::now();
+
+        // Push duplicate alert
+        let alert = Alert {
+            when: now,
+            message: "TEST ALERT".to_string(),
+        };
+        engine.push(alert.clone());
+        engine.push(alert.clone());
+        assert_eq!(engine.recent().count(), 1);
+
+        // Fill past max_keep (20)
+        for i in 0..30 {
+            engine.push(Alert {
+                when: now,
+                message: format!("ALERT {i}"),
+            });
+        }
+
+        assert_eq!(engine.recent().count(), 20);
+        let latest = engine.latest_messages(5);
+        assert_eq!(latest[0], "ALERT 29");
+        assert_eq!(latest[1], "ALERT 28");
+    }
+}

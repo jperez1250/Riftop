@@ -148,3 +148,101 @@ pub fn write_csv(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    #[test]
+    fn test_output_format_parse() {
+        assert_eq!(OutputFormat::parse("json"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("JSON"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("text"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("plain"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("csv"), OutputFormat::Csv);
+        assert_eq!(OutputFormat::parse("CSV"), OutputFormat::Csv);
+        assert_eq!(OutputFormat::parse("tui"), OutputFormat::Tui);
+        assert_eq!(OutputFormat::parse("anything_else"), OutputFormat::Tui);
+    }
+
+    #[test]
+    fn test_json_escape() {
+        assert_eq!(json_escape("hello"), "hello");
+        assert_eq!(json_escape("hello \"world\""), "hello \\\"world\\\"");
+        assert_eq!(
+            json_escape("line1\nline2\r\ttab\\slash"),
+            "line1\\nline2\\r\\ttab\\\\slash"
+        );
+        assert_eq!(json_escape("\x01\x1f"), "\\u0001\\u001f");
+    }
+
+    #[test]
+    fn test_write_json_empty_and_with_data() {
+        let now = Instant::now();
+        let mut table = FlowTable::new();
+        table.set_show_ports(true);
+
+        let mut buf = Vec::new();
+        write_json(&mut buf, &table, now, 10, "eth0 \"test\"", SortBy::Rate2s).unwrap();
+        let json_str = String::from_utf8(buf).unwrap();
+        assert!(json_str.contains("\"interface\":\"eth0 \\\"test\\\"\""));
+        assert!(json_str.contains("\"packets_seen\":0"));
+        assert!(json_str.contains("\"flows\":[]"));
+
+        let ip_a: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip_b: IpAddr = "192.168.1.1".parse().unwrap();
+        table.record(ip_a, ip_b, 80, 443, 6, 1000, &[ip_a], now, None);
+
+        let mut buf2 = Vec::new();
+        write_json(&mut buf2, &table, now, 10, "eth0", SortBy::Rate2s).unwrap();
+        let json_str2 = String::from_utf8(buf2).unwrap();
+        assert!(json_str2.contains("\"packets_seen\":1"));
+        assert!(json_str2.contains("\"flow_count\":1"));
+        assert!(json_str2.contains("\"src\":\"10.0.0.1\""));
+        assert!(json_str2.contains("\"dst\":\"192.168.1.1\""));
+        assert!(json_str2.contains("\"sport\":80"));
+        assert!(json_str2.contains("\"dport\":443"));
+    }
+
+    #[test]
+    fn test_write_text_format() {
+        let now = Instant::now();
+        let mut table = FlowTable::new();
+        let ip_a: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip_b: IpAddr = "192.168.1.1".parse().unwrap();
+        table.record(ip_a, ip_b, 80, 443, 6, 500, &[ip_a], now, None);
+
+        let mut buf = Vec::new();
+        write_text(&mut buf, &table, now, 5, SortBy::Rate2s, true).unwrap();
+        let text_out = String::from_utf8(buf).unwrap();
+        assert!(text_out.contains("# packets_seen=1 accepted=1"));
+        assert!(text_out.contains("10.0.0.1\t192.168.1.1"));
+
+        let mut buf_bits = Vec::new();
+        write_text(&mut buf_bits, &table, now, 5, SortBy::Rate2s, false).unwrap();
+        let text_bits_out = String::from_utf8(buf_bits).unwrap();
+        assert!(text_bits_out.contains("# packets_seen=1"));
+    }
+
+    #[test]
+    fn test_write_csv_format() {
+        let now = Instant::now();
+        let mut table = FlowTable::new();
+        let ip_a: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip_b: IpAddr = "192.168.1.1".parse().unwrap();
+        table.record(ip_a, ip_b, 80, 443, 6, 500, &[ip_a], now, None);
+
+        let mut buf = Vec::new();
+        write_csv(&mut buf, &table, now, 5, SortBy::Rate2s, true).unwrap();
+        let csv_out = String::from_utf8(buf).unwrap();
+        assert!(csv_out.contains("rate_2s_bytes_sec"));
+        assert!(csv_out.contains("10.0.0.1,192.168.1.1,0,0,0,500,0,500"));
+
+        let mut buf_bits = Vec::new();
+        write_csv(&mut buf_bits, &table, now, 5, SortBy::Rate2s, false).unwrap();
+        let csv_bits_out = String::from_utf8(buf_bits).unwrap();
+        assert!(csv_bits_out.contains("rate_2s_bits_sec"));
+    }
+}

@@ -250,3 +250,58 @@ impl FlowTable {
         self.flows.is_empty()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sort_by_parse() {
+        assert_eq!(SortBy::parse("2s"), SortBy::Rate2s);
+        assert_eq!(SortBy::parse("40s"), SortBy::Rate40s);
+        assert_eq!(SortBy::parse("source"), SortBy::Source);
+        assert_eq!(SortBy::parse("src"), SortBy::Source);
+        assert_eq!(SortBy::parse("destination"), SortBy::Destination);
+        assert_eq!(SortBy::parse("dst"), SortBy::Destination);
+        assert_eq!(SortBy::parse("total"), SortBy::Total);
+        assert_eq!(SortBy::parse("10s"), SortBy::Rate10s);
+        assert_eq!(SortBy::parse("invalid"), SortBy::Rate10s);
+    }
+
+    #[test]
+    fn test_flow_table_top_sorted() {
+        let now = Instant::now();
+        let mut table = FlowTable::new();
+        let ip1: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip2: IpAddr = "10.0.0.2".parse().unwrap();
+        let ip3: IpAddr = "10.0.0.3".parse().unwrap();
+
+        table.record(ip1, ip2, 80, 80, 6, 100, &[ip1], now, None);
+        table.record(ip1, ip3, 80, 80, 6, 500, &[ip1], now, None);
+
+        let top_total = table.top_sorted(10, now, SortBy::Total);
+        assert_eq!(top_total.len(), 2);
+        assert_eq!(top_total[0].total_bytes, 500);
+        assert_eq!(top_total[1].total_bytes, 100);
+
+        let top_src = table.top_sorted(10, now, SortBy::Source);
+        assert_eq!(top_src.len(), 2);
+    }
+
+    #[test]
+    fn test_flow_table_expire() {
+        let now = Instant::now();
+        let mut table = FlowTable::new();
+        let ip1: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip2: IpAddr = "10.0.0.2".parse().unwrap();
+
+        table.record(ip1, ip2, 80, 80, 6, 100, &[ip1], now, None);
+        assert_eq!(table.len(), 1);
+
+        let later = now + Duration::from_secs(60);
+        table.expire(later, Duration::from_secs(30));
+        assert_eq!(table.len(), 0);
+        assert!(table.is_empty());
+    }
+}
