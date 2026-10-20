@@ -73,7 +73,7 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => DnsState::Resolved(sanitize_hostname(&n)),
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +111,60 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+/// Sanitize hostname from untrusted DNS response by stripping control characters
+/// and bounding length to RFC 1035 limit (253 bytes) at a valid UTF-8 boundary.
+#[must_use]
+pub fn sanitize_hostname(name: &str) -> String {
+    let filtered: String = name.chars().filter(|c| !c.is_control()).collect();
+    if filtered.len() <= 253 {
+        filtered
+    } else {
+        let mut end = 253;
+        while !filtered.is_char_boundary(end) {
+            end -= 1;
+        }
+        filtered[..end].to_string()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_hostname_strips_control_characters() {
+        let input = "malicious\x1b[2J\n\r\thost.example.com";
+        let sanitized = sanitize_hostname(input);
+        assert_eq!(sanitized, "malicious[2Jhost.example.com");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_bounds_length() {
+        let long_name = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_name);
+        assert_eq!(sanitized.len(), 253);
+        assert_eq!(sanitized, "a".repeat(253));
+    }
+
+    #[test]
+    fn test_sanitize_hostname_multabyte_utf8_boundary() {
+        let prefix = "a".repeat(251);
+        let input = format!("{prefix}🦀🦀🦀");
+        let sanitized = sanitize_hostname(&input);
+        assert!(sanitized.len() <= 253);
+        assert_eq!(sanitized.len(), 251);
+    }
+
+    #[test]
+    fn test_dns_cache_insert_sanitizes() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+        cache.insert(ip, Some("bad\x1b[2Jhost.com".to_string()));
+        assert_eq!(cache.get(&ip), Some("bad[2Jhost.com".to_string()));
     }
 }
