@@ -1,37 +1,30 @@
-# Labeler configuration for GitHub Actions PR labeling (actions/labeler@v5)
+# Labeler configuration for GitHub Actions PR labeling
 
 'area: flow':
-  - changed-files:
-      - AnyGlobToAnyInList: ['src/flow/**/*']
+  - 'src/flow/**/*'
 
 'area: capture':
-  - changed-files:
-      - AnyGlobToAnyInList: ['src/capture/**/*']
+  - 'src/capture/**/*'
 
 'area: ui':
-  - changed-files:
-      - AnyGlobToAnyInList: ['src/ui/**/*']
+  - 'src/ui/**/*'
 
 'area: config':
-  - changed-files:
-      - AnyGlobToAnyInList: ['src/config/**/*']
+  - 'src/config/**/*'
 
 'area: dns':
-  - changed-files:
-      - AnyGlobToAnyInList: ['src/dns/**/*']
+  - 'src/dns/**/*'
 
 'area: top':
-  - changed-files:
-      - AnyGlobToAnyInList: ['src/top/**/*']
+  - 'src/top/**/*'
 
 'area: tests':
-  - changed-files:
-      - AnyGlobToAnyInList: ['tests/**/*']
+  - 'tests/**/*'
 
 'area: docs':
-  - changed-files:
-      - AnyGlobToAnyInList: ['docs/**/*', '*.md']
+  - 'docs/**/*'
+  - '*.md'
 
 'area: ci':
-  - changed-files:
-      - AnyGlobToAnyInList: ['.github/**/*', 'scripts/**/*']
+  - '.github/**/*'
+  - 'scripts/**/*'
