@@ -1,0 +1,3 @@
+## 2025-05-18 - FlowTable Entry Key Clones & In-place Truncation
+**Learning:** `HashMap::entry(key.clone())` on active flow tables creates key clones on every packet lookup even when entries already exist. Using `.entry(key).or_insert_with_key(...)` moves the key into entry lookup without cloning for existing entries. In addition, sorting flow vectors and taking top N items via `list.into_iter().take(n).collect()` allocates a second `Vec`; `list.truncate(n)` truncates in-place without reallocation.
+**Action:** Always prefer `or_insert_with_key` for HashMap lookup/insertion and in-place `truncate(n)` when returning top N slices from owned vectors.
