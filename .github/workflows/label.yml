@@ -1,6 +1,8 @@
 name: label
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
   pull_request_target:
     types: [opened, synchronize, reopened]
 
@@ -12,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/labeler@v5
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
