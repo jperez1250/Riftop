@@ -148,3 +148,32 @@ pub fn write_csv(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_json_escape_edge_cases() {
+        assert_eq!(json_escape("hello"), "hello");
+        assert_eq!(json_escape("foo\"bar\\baz"), "foo\\\"bar\\\\baz");
+        assert_eq!(json_escape("line1\nline2\r\ttab"), "line1\\nline2\\r\\ttab");
+        // Control character U+0001
+        assert_eq!(json_escape("\x01"), "\\u0001");
+        // Null character
+        assert_eq!(json_escape("\0"), "\\u0000");
+        // Multi-byte Unicode character
+        assert_eq!(json_escape("🦀 rust"), "🦀 rust");
+    }
+
+    #[test]
+    fn test_output_format_parse() {
+        assert_eq!(OutputFormat::parse("json"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("JSON"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("text"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("plain"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("csv"), OutputFormat::Csv);
+        assert_eq!(OutputFormat::parse("unknown"), OutputFormat::Tui);
+    }
+}
