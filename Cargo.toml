@@ -10,17 +10,17 @@ keywords = ["network", "bandwidth", "monitor", "tui", "iftop"]
 categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
-anyhow = "1.0"
-clap = { version = "4.6", features = ["derive"] }
-crossterm = "0.29"
-dns-lookup = "4.0"
-etherparse = "0.21"
-pcap = "2.5"
-ratatui = "0.30"
-serde = { version = "1.0", features = ["derive"] }
-thiserror = "2.0"
-parking_lot = "0.12"
-toml = "0.8"
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+crossterm = "0.29.0"
+dns-lookup = "4.0.2"
+etherparse = "0.21.0"
+pcap = "2.5.0"
+ratatui = "0.30.2"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.21"
+parking_lot = "0.12.5"
+toml = "0.8.23"
 
 [lints.rust]
 unsafe_code = "forbid"
