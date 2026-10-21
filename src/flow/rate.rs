@@ -46,3 +46,49 @@ impl RateWindow {
         total as f64 / self.max_age.as_secs_f64()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_window_sub_100ms_aggregation() {
+        let mut window = RateWindow::new(Duration::from_secs(10));
+        let start = Instant::now();
+
+        window.add(start, 100);
+        window.add(start + Duration::from_millis(50), 200);
+
+        assert_eq!(window.samples.len(), 1);
+        assert_eq!(window.samples[0].1, 300);
+    }
+
+    #[test]
+    fn test_rate_window_eviction() {
+        let mut window = RateWindow::new(Duration::from_secs(2));
+        let start = Instant::now();
+
+        window.add(start, 100);
+        window.add(start + Duration::from_secs(1), 200);
+        window.add(start + Duration::from_secs(3), 300);
+
+        // First sample at `start` (t=0) should be retained if cutoff is t=3-2=1
+        // sample at start (t=0) is < cutoff (t=1), so it gets removed.
+        assert_eq!(window.samples.len(), 2);
+    }
+
+    #[test]
+    fn test_rate_window_zero_duration() {
+        let window = RateWindow::new(Duration::ZERO);
+        let start = Instant::now();
+        assert_eq!(window.rate(start), 0.0);
+    }
+
+    #[test]
+    fn test_rate_window_empty() {
+        let window = RateWindow::new(Duration::from_secs(10));
+        let start = Instant::now();
+        assert_eq!(window.rate(start), 0.0);
+    }
+}

@@ -250,3 +250,42 @@ impl FlowTable {
         self.flows.is_empty()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_flow_table_expire_timestamp_regression() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let future = now + Duration::from_secs(10);
+        let ip_a: IpAddr = "192.168.1.1".parse().unwrap();
+        let ip_b: IpAddr = "192.168.1.2".parse().unwrap();
+
+        // Record a flow with a timestamp in the future relative to `now`
+        table.record(ip_a, ip_b, 80, 12345, 6, 100, &[], future, None);
+
+        // Expire with `now` being earlier than `last_seen` (future)
+        table.expire(now, Duration::from_secs(5));
+        assert_eq!(
+            table.len(),
+            1,
+            "Flow with future timestamp should not be expired when now < last_seen"
+        );
+    }
+
+    #[test]
+    fn test_flow_table_sort_by_parse() {
+        assert_eq!(SortBy::parse("2s"), SortBy::Rate2s);
+        assert_eq!(SortBy::parse("10s"), SortBy::Rate10s);
+        assert_eq!(SortBy::parse("40s"), SortBy::Rate40s);
+        assert_eq!(SortBy::parse("src"), SortBy::Source);
+        assert_eq!(SortBy::parse("source"), SortBy::Source);
+        assert_eq!(SortBy::parse("dst"), SortBy::Destination);
+        assert_eq!(SortBy::parse("destination"), SortBy::Destination);
+        assert_eq!(SortBy::parse("total"), SortBy::Total);
+        assert_eq!(SortBy::parse("invalid"), SortBy::Rate10s);
+    }
+}
