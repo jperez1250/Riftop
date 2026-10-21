@@ -1,5 +1,7 @@
 //! JSON/text/CSV export of flow snapshots.
 
+use std::borrow::Cow;
+use std::fmt::Write as _;
 use std::io::{self, Write};
 use std::time::Instant;
 
@@ -24,8 +26,22 @@ impl OutputFormat {
     }
 }
 
-pub fn json_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
+/// Escapes a string for JSON output.
+///
+/// **Performance Rationale:**
+/// Uses `Cow<'_, str>` to borrow the input string slice directly when no escaping is needed,
+/// avoiding heap allocations on clean strings. Pre-allocates capacity and uses `write!`
+/// instead of `format!` to prevent intermediate allocations when escaping control characters.
+pub fn json_escape(s: &str) -> Cow<'_, str> {
+    // Fast path: Check for characters requiring escaping without allocating memory.
+    if !s
+        .bytes()
+        .any(|b| matches!(b, b'"' | b'\\' | b'\n' | b'\r' | b'\t') || b.is_ascii_control())
+    {
+        return Cow::Borrowed(s);
+    }
+
+    let mut out = String::with_capacity(s.len() + 8);
     for c in s.chars() {
         match c {
             '"' => out.push_str("\\\""),
@@ -33,13 +49,13 @@ pub fn json_escape(s: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if c.is_control() => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
+            c if c.is_ascii_control() => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
             }
             c => out.push(c),
         }
     }
-    out
+    Cow::Owned(out)
 }
 
 pub fn write_json(
