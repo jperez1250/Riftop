@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   label:
+    name: label
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -20,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Labeler
-        uses: actions/labeler@v4
+        uses: actions/labeler@v5
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
           configuration-path: .github/labeler.yml
