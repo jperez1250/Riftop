@@ -17,7 +17,12 @@ impl RateWindow {
 
     pub fn add(&mut self, now: Instant, bytes: u64) {
         if let Some((last_ts, last_bytes)) = self.samples.last_mut() {
-            if now.saturating_duration_since(*last_ts) < Duration::from_millis(100) {
+            let diff = if now >= *last_ts {
+                now.saturating_duration_since(*last_ts)
+            } else {
+                last_ts.saturating_duration_since(now)
+            };
+            if diff < Duration::from_millis(100) {
                 *last_bytes += bytes;
                 return;
             }
@@ -30,6 +35,9 @@ impl RateWindow {
 
     #[must_use]
     pub fn rate(&self, now: Instant) -> f64 {
+        if self.max_age.is_zero() {
+            return 0.0;
+        }
         let cutoff = now.checked_sub(self.max_age);
         let total: u64 = self
             .samples
