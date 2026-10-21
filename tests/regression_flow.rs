@@ -2,13 +2,14 @@
 //!
 //! IDs: R1–R8 documented in docs/legacy-analysis.md
 
-use std::net::{IpAddr, Ipv4Addr};
-use std::path::PathBuf;
-use std::time::Instant;
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use riftop::export::json_escape;
-use riftop::flow::{FlowKey, FlowTable};
+use riftop::flow::{FlowKey, FlowTable, RateWindow};
 use riftop::protocols::{decode_ethernet, DecodeResult};
+use std::net::{IpAddr, Ipv4Addr};
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 #[test]
 fn json_escaping_special_chars() {
@@ -69,4 +70,40 @@ fn fixture_directory_exists() {
         dir.is_dir(),
         "fixtures/pcap must exist for regression fixtures"
     );
+}
+
+#[test]
+fn test_expire_handles_timestamp_regression() {
+    let mut table = FlowTable::new();
+    let now = Instant::now();
+    let future = now + Duration::from_secs(5);
+    table.record(
+        IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
+        IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2)),
+        1234,
+        80,
+        6,
+        100,
+        &[],
+        future,
+        None,
+    );
+    // expire called with `now` (< last_seen `future`) must not panic
+    table.expire(now, Duration::from_secs(30));
+    assert_eq!(table.len(), 1);
+}
+
+#[test]
+fn test_rate_window_out_of_order_sample_not_merged() {
+    let mut window = RateWindow::new(Duration::from_secs(10));
+    let t_10s = Instant::now() + Duration::from_secs(20);
+    let t_12s_old = t_10s - Duration::from_secs(12);
+
+    window.add(t_10s, 100);
+    window.add(t_12s_old, 50);
+
+    // Out-of-order sample 12s older than t_10s must not merge into t_10s sample bucket,
+    // and must be excluded from rate calculation at t_10s since it is beyond max_age (10s).
+    let rate = window.rate(t_10s);
+    assert!((rate - 10.0).abs() < 1e-5);
 }
