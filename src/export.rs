@@ -148,3 +148,56 @@ pub fn write_csv(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    #[test]
+    fn test_output_format_parse() {
+        assert_eq!(OutputFormat::parse("json"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("JSON"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("text"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("plain"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("csv"), OutputFormat::Csv);
+        assert_eq!(OutputFormat::parse("tui"), OutputFormat::Tui);
+        assert_eq!(OutputFormat::parse("invalid"), OutputFormat::Tui);
+    }
+
+    #[test]
+    fn test_json_escape_special_chars() {
+        assert_eq!(json_escape("hello \"world\""), "hello \\\"world\\\"");
+        assert_eq!(json_escape("line1\nline2\r\ttab"), "line1\\nline2\\r\\ttab");
+        assert_eq!(json_escape("slash\\path"), "slash\\\\path");
+        assert_eq!(json_escape("\x01\x1f"), "\\u0001\\u001f");
+    }
+
+    #[test]
+    fn test_export_writers() {
+        let mut table = FlowTable::new();
+        table.set_show_ports(true);
+        let now = Instant::now();
+        let ip_a: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip_b: IpAddr = "10.0.0.2".parse().unwrap();
+
+        table.record(ip_a, ip_b, 80, 1024, 6, 500, &[ip_a], now, None);
+
+        let mut json_buf = Vec::new();
+        write_json(&mut json_buf, &table, now, 10, "eth0", SortBy::Total).unwrap();
+        let json_str = String::from_utf8(json_buf).unwrap();
+        assert!(json_str.contains("\"interface\":\"eth0\""));
+        assert!(json_str.contains("\"src\":\"10.0.0.1\""));
+
+        let mut text_buf = Vec::new();
+        write_text(&mut text_buf, &table, now, 10, SortBy::Total, true).unwrap();
+        let text_str = String::from_utf8(text_buf).unwrap();
+        assert!(text_str.contains("# SRC\tDST"));
+
+        let mut csv_buf = Vec::new();
+        write_csv(&mut csv_buf, &table, now, 10, SortBy::Total, false).unwrap();
+        let csv_str = String::from_utf8(csv_buf).unwrap();
+        assert!(csv_str.contains("src,dst,sport,dport,proto"));
+    }
+}

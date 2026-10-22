@@ -72,3 +72,57 @@ pub fn format_top_row(row: &TopRow) -> (String, String, String, String, String) 
         format_bytes(row.bytes),
     )
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::FlowTable;
+    use crate::top::{top_hosts, top_ports, top_protocols};
+    use std::net::IpAddr;
+    use std::time::Instant;
+
+    #[test]
+    fn test_view_mode_cycle_and_title() {
+        let v = ViewMode::Flows;
+        assert_eq!(v.title(), "Top flows");
+        let v = v.cycle();
+        assert_eq!(v, ViewMode::Hosts);
+        assert_eq!(v.title(), "Top hosts");
+        let v = v.cycle();
+        assert_eq!(v, ViewMode::Ports);
+        assert_eq!(v.title(), "Top ports");
+        let v = v.cycle();
+        assert_eq!(v, ViewMode::Protocols);
+        assert_eq!(v.title(), "Top protocols");
+        let v = v.cycle();
+        assert_eq!(v, ViewMode::Flows);
+    }
+
+    #[test]
+    fn test_top_aggregations() {
+        let mut table = FlowTable::new();
+        table.set_show_ports(true);
+        let now = Instant::now();
+
+        let ip_a: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip_b: IpAddr = "10.0.0.2".parse().unwrap();
+
+        table.record(ip_a, ip_b, 80, 1001, 6, 2000, &[ip_a], now, None);
+
+        let snap = table.snapshot(10, now);
+
+        let hosts = top_hosts(&snap, now, 10);
+        assert!(!hosts.is_empty());
+
+        let ports = top_ports(&snap, now, 10);
+        assert!(!ports.is_empty());
+
+        let protos = top_protocols(&snap, now, 10);
+        assert_eq!(protos.len(), 1);
+        assert_eq!(protos[0].label, "TCP");
+
+        let formatted = format_top_row(&protos[0]);
+        assert_eq!(formatted.0, "TCP");
+    }
+}

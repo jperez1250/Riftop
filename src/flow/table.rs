@@ -238,7 +238,7 @@ impl FlowTable {
 
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
         self.flows
-            .retain(|_, s| now.duration_since(s.last_seen) < max_idle);
+            .retain(|_, s| now.saturating_duration_since(s.last_seen) < max_idle);
     }
 
     #[must_use]
@@ -248,5 +248,66 @@ impl FlowTable {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.flows.is_empty()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sort_by_parse() {
+        assert_eq!(SortBy::parse("2s"), SortBy::Rate2s);
+        assert_eq!(SortBy::parse("40s"), SortBy::Rate40s);
+        assert_eq!(SortBy::parse("source"), SortBy::Source);
+        assert_eq!(SortBy::parse("src"), SortBy::Source);
+        assert_eq!(SortBy::parse("destination"), SortBy::Destination);
+        assert_eq!(SortBy::parse("dst"), SortBy::Destination);
+        assert_eq!(SortBy::parse("total"), SortBy::Total);
+        assert_eq!(SortBy::parse("10s"), SortBy::Rate10s);
+        assert_eq!(SortBy::parse("unknown"), SortBy::Rate10s);
+    }
+
+    #[test]
+    fn test_flow_table_expire_and_time_regression() {
+        let mut table = FlowTable::new();
+        let t1 = Instant::now();
+        let ip_a: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip_b: IpAddr = "10.0.0.2".parse().unwrap();
+
+        table.record(ip_a, ip_b, 80, 1234, 6, 1000, &[], t1, None);
+        assert_eq!(table.len(), 1);
+
+        table.expire(t1 + Duration::from_secs(10), Duration::from_secs(5));
+        assert_eq!(table.len(), 0);
+
+        let t2 = Instant::now();
+        table.record(ip_a, ip_b, 80, 1234, 6, 1000, &[], t2, None);
+
+        let t0 = t2 - Duration::from_secs(5);
+        table.expire(t0, Duration::from_secs(10));
+        assert_eq!(table.len(), 1);
+    }
+
+    #[test]
+    fn test_flow_table_top_sorted() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let ip_a: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip_b: IpAddr = "10.0.0.2".parse().unwrap();
+        let ip_c: IpAddr = "10.0.0.3".parse().unwrap();
+
+        table.record(ip_a, ip_b, 80, 1001, 6, 500, &[], now, None);
+        table.record(ip_a, ip_c, 80, 1002, 6, 1500, &[], now, None);
+
+        let top_total = table.top_sorted(10, now, SortBy::Total);
+        assert_eq!(top_total.len(), 2);
+        assert_eq!(top_total[0].total_bytes, 1500);
+        assert_eq!(top_total[1].total_bytes, 500);
+
+        let snapshot = table.snapshot(10, now);
+        assert_eq!(snapshot.flows.len(), 2);
+        assert!(!table.is_empty());
     }
 }

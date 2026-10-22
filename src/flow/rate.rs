@@ -46,3 +46,43 @@ impl RateWindow {
         total as f64 / self.max_age.as_secs_f64()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_window_sub_100ms_accumulation() {
+        let mut window = RateWindow::new(Duration::from_secs(10));
+        let t0 = Instant::now();
+
+        window.add(t0, 100);
+        window.add(t0 + Duration::from_millis(50), 200);
+
+        assert_eq!(window.samples.len(), 1);
+        assert_eq!(window.samples[0].1, 300);
+
+        let rate = window.rate(t0 + Duration::from_millis(50));
+        assert!((rate - 30.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_rate_window_cutoff_pruning() {
+        let mut window = RateWindow::new(Duration::from_secs(2));
+        let t0 = Instant::now();
+
+        window.add(t0, 100);
+        let t1 = t0 + Duration::from_secs(3);
+        window.add(t1, 200);
+
+        assert_eq!(window.samples.len(), 1);
+        assert_eq!(window.samples[0].1, 200);
+    }
+
+    #[test]
+    fn test_rate_window_zero_rate() {
+        let window = RateWindow::new(Duration::from_secs(10));
+        assert_eq!(window.rate(Instant::now()), 0.0);
+    }
+}
