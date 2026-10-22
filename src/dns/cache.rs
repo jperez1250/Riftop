@@ -73,7 +73,7 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => DnsState::Resolved(sanitize_hostname(&n)),
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +111,52 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+/// Sanitize a hostname by stripping control characters and bounding length to 253 bytes (RFC 1035) at UTF-8 boundaries.
+#[must_use]
+pub fn sanitize_hostname(s: &str) -> String {
+    let sanitized: String = s.chars().filter(|c| !c.is_control()).collect();
+    if sanitized.len() > 253 {
+        let mut end = 253;
+        while !sanitized.is_char_boundary(end) {
+            end -= 1;
+        }
+        sanitized[..end].to_string()
+    } else {
+        sanitized
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_hostname_normal() {
+        assert_eq!(sanitize_hostname("example.com"), "example.com");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_strips_control_characters() {
+        assert_eq!(sanitize_hostname("evil.com\x1b\r\n\t\x00\x07"), "evil.com");
+        assert_eq!(sanitize_hostname("evil.com\x1b[2J"), "evil.com[2J");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_truncates_long_names() {
+        let long_name = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_name);
+        assert_eq!(sanitized.len(), 253);
+    }
+
+    #[test]
+    fn test_sanitize_hostname_utf8_boundary() {
+        let crab_string = "a".repeat(251) + "🦀🦀🦀";
+        let sanitized = sanitize_hostname(&crab_string);
+        assert!(sanitized.len() <= 253);
+        assert!(std::str::from_utf8(sanitized.as_bytes()).is_ok());
     }
 }
