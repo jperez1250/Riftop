@@ -224,15 +224,69 @@ pub fn bpf_expression(user: Option<&str>) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
     #[test]
     fn parse_v4_prefix() {
-        if let Ok(f) = NetFilterV4::parse("10.0.0.0/24") {
-            assert!(f.contains(Ipv4Addr::new(10, 0, 0, 5)));
-        } else {
-            panic!("failed to parse IPv4 CIDR");
-        }
+        let f = NetFilterV4::parse("10.0.0.0/24").unwrap();
+        assert!(f.contains(Ipv4Addr::new(10, 0, 0, 5)));
+        assert!(!f.contains(Ipv4Addr::new(10, 0, 1, 5)));
+
+        let f0 = NetFilterV4::parse("0.0.0.0/0").unwrap();
+        assert!(f0.contains(Ipv4Addr::new(192, 168, 1, 1)));
+
+        let f32 = NetFilterV4::parse("192.168.1.100/32").unwrap();
+        assert!(f32.contains(Ipv4Addr::new(192, 168, 1, 100)));
+        assert!(!f32.contains(Ipv4Addr::new(192, 168, 1, 101)));
+
+        let f_quad = NetFilterV4::parse("172.16.0.0/255.240.0.0").unwrap();
+        assert!(f_quad.contains(Ipv4Addr::new(172, 31, 255, 255)));
+
+        assert!(NetFilterV4::parse("invalid").is_err());
+        assert!(NetFilterV4::parse("10.0.0.0/33").is_err());
+        assert!(NetFilterV4::parse("256.0.0.0/24").is_err());
+    }
+
+    #[test]
+    fn parse_v6_prefix() {
+        let f = NetFilterV6::parse("2001:db8::/32").unwrap();
+        assert!(f.contains(Ipv6Addr::from_str("2001:db8:ffff::1").unwrap()));
+        assert!(!f.contains(Ipv6Addr::from_str("2001:db9::1").unwrap()));
+
+        let f0 = NetFilterV6::parse("::/0").unwrap();
+        assert!(f0.contains(Ipv6Addr::from_str("2001:db8::1").unwrap()));
+
+        assert!(NetFilterV6::parse("2001:db8::/129").is_err());
+        assert!(NetFilterV6::parse("not-an-ip/64").is_err());
+    }
+
+    #[test]
+    fn test_is_link_local_v6() {
+        let ll: Ipv6Addr = "fe80::1".parse().unwrap();
+        assert!(is_link_local_v6(ll));
+
+        let global: Ipv6Addr = "2001:db8::1".parse().unwrap();
+        assert!(!is_link_local_v6(global));
+    }
+
+    #[test]
+    fn test_screen_filter() {
+        let mut sf = ScreenFilter::new(Some("EXAMPLE".to_string()));
+        assert!(sf.is_active());
+        assert!(sf.matches("host.example.com", "10.0.0.1"));
+        assert!(!sf.matches("other.org", "10.0.0.1"));
+
+        sf.set(None);
+        assert!(!sf.is_active());
+        assert!(sf.matches("any.host", "10.0.0.1"));
+    }
+
+    #[test]
+    fn test_bpf_expression() {
+        assert_eq!(bpf_expression(None), "ip or ip6");
+        assert_eq!(bpf_expression(Some("   ")), "ip or ip6");
+        assert_eq!(bpf_expression(Some("port 80")), "(port 80) and (ip or ip6)");
     }
 }
