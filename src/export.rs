@@ -65,11 +65,14 @@ pub fn write_json(
         if i > 0 {
             write!(out, ",")?;
         }
+        // Format IpAddr directly into the output stream without intermediate
+        // String allocations or redundant JSON escaping (IpAddr string format
+        // contains only digits, colons, dots, and hex chars which never require JSON escaping).
         write!(
             out,
             "{{\"src\":\"{}\",\"dst\":\"{}\",\"sport\":{},\"dport\":{},\"proto\":{},\"sent\":{},\"recv\":{},\"total\":{},\"rate_2s\":{:.3},\"rate_10s\":{:.3},\"rate_40s\":{:.3}}}",
-            json_escape(&s.key.a.to_string()),
-            json_escape(&s.key.b.to_string()),
+            s.key.a,
+            s.key.b,
             s.key.port_a,
             s.key.port_b,
             s.key.protocol,
