@@ -10,24 +10,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  label:
-    name: label
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Label PR
-        uses: actions/labeler@v4
-        with:
-          repo-token: "${{ secrets.GITHUB_TOKEN }}"
-          configuration-path: .github/labeler.yml
-          sync-labels: false
-
   check-and-test:
     name: Code Quality & Safety Checks
     runs-on: ubuntu-latest
