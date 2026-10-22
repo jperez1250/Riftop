@@ -1,5 +1,7 @@
 //! Riftop library — capture, decode, stats, filters.
 
+#![forbid(unsafe_code)]
+
 pub mod alerts;
 pub mod capture;
 pub mod cli;
