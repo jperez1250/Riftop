@@ -73,7 +73,14 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => {
+                let sanitized = sanitize_hostname(&n);
+                if sanitized.is_empty() {
+                    DnsState::Negative
+                } else {
+                    DnsState::Resolved(sanitized)
+                }
+            }
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +118,64 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+/// Sanitize a hostname string by stripping control characters and bounding length to 253 bytes (RFC 1035).
+#[must_use]
+pub fn sanitize_hostname(name: &str) -> String {
+    let filtered: String = name.chars().filter(|c| !c.is_control()).collect();
+    if filtered.len() > 253 {
+        let mut end = 253;
+        while !filtered.is_char_boundary(end) {
+            end -= 1;
+        }
+        filtered[..end].to_string()
+    } else {
+        filtered
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_hostname_control_chars() {
+        let input = "example.com\n\r\t\x1b[31m";
+        let sanitized = sanitize_hostname(input);
+        assert_eq!(sanitized, "example.com[31m");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_length_limit() {
+        let long_name = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_name);
+        assert_eq!(sanitized.len(), 253);
+    }
+
+    #[test]
+    fn test_sanitize_hostname_utf8_boundary() {
+        // Construct a string where byte 253 lands in the middle of a multi-byte UTF-8 character
+        let prefix = "a".repeat(252);
+        let multi_byte = format!("{prefix}🦀🦀");
+        let sanitized = sanitize_hostname(&multi_byte);
+        assert!(sanitized.len() <= 253);
+        assert_eq!(sanitized, prefix);
+    }
+
+    #[test]
+    fn test_dns_cache_insert_sanitizes() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
+
+        // Inserting control characters only results in Negative state
+        cache.insert(ip, Some("\n\r".to_string()));
+        assert_eq!(cache.state(&ip), Some(DnsState::Negative));
+
+        // Inserting valid hostname with control chars sanitizes it
+        cache.insert(ip, Some("host.example.com\n".to_string()));
+        assert_eq!(cache.get(&ip), Some("host.example.com".to_string()));
     }
 }
