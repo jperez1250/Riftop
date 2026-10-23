@@ -211,26 +211,8 @@ impl ScreenFilter {
         match &self.pattern {
             None => true,
             Some(p) if p.is_empty() => true,
-            Some(p) => contains_ignore_case(host_a, p) || contains_ignore_case(host_b, p),
+            Some(p) => host_a.to_lowercase().contains(p) || host_b.to_lowercase().contains(p),
         }
-    }
-}
-
-/// Case-insensitive substring check that avoids heap allocation (`to_lowercase()`) for ASCII strings.
-fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
-    if needle.is_empty() {
-        return true;
-    }
-    if haystack.is_ascii() && needle.is_ascii() {
-        if needle.len() > haystack.len() {
-            return false;
-        }
-        haystack
-            .as_bytes()
-            .windows(needle.len())
-            .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
-    } else {
-        haystack.to_lowercase().contains(needle)
     }
 }
 
