@@ -89,3 +89,112 @@ pub enum SortColumn {
     Source,
     Destination,
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cli_parse_defaults() {
+        let args = Args::try_parse_from(["riftop"]).unwrap();
+        assert!(args.interface.is_none());
+        assert!(!args.no_dns);
+        assert!(!args.no_port_resolution);
+        assert!(!args.ports);
+        assert!(!args.promiscuous);
+        assert!(!args.use_bytes);
+        assert!(!args.no_bars);
+        assert!(!args.link_local);
+        assert!(args.sort.is_none());
+        assert!(!args.list_interfaces);
+    }
+
+    #[test]
+    fn test_cli_parse_flags() {
+        let args = Args::try_parse_from([
+            "riftop",
+            "-i",
+            "eth0",
+            "-n",
+            "-N",
+            "-P",
+            "-p",
+            "-B",
+            "-b",
+            "-l",
+            "--list-interfaces",
+        ])
+        .unwrap();
+
+        assert_eq!(args.interface.as_deref(), Some("eth0"));
+        assert!(args.no_dns);
+        assert!(args.no_port_resolution);
+        assert!(args.ports);
+        assert!(args.promiscuous);
+        assert!(args.use_bytes);
+        assert!(args.no_bars);
+        assert!(args.link_local);
+        assert!(args.list_interfaces);
+    }
+
+    #[test]
+    fn test_cli_parse_options() {
+        let args = Args::try_parse_from([
+            "riftop",
+            "-f",
+            "tcp port 80",
+            "-F",
+            "10.0.0.0/8",
+            "-G",
+            "2001:db8::/32",
+            "--screen-filter",
+            "cdn",
+            "-t",
+            "1000",
+            "--lines",
+            "25",
+            "--sort",
+            "10s",
+            "--pcap",
+            "sample.pcap",
+            "--output",
+            "json",
+            "--aggregate",
+            "pair",
+            "--alert-rate-bps",
+            "100000.0",
+            "--alert-pps",
+            "500.0",
+        ])
+        .unwrap();
+
+        assert_eq!(args.filter.as_deref(), Some("tcp port 80"));
+        assert_eq!(args.net_filter.as_deref(), Some("10.0.0.0/8"));
+        assert_eq!(args.net_filter6.as_deref(), Some("2001:db8::/32"));
+        assert_eq!(args.screen_filter.as_deref(), Some("cdn"));
+        assert_eq!(args.interval_ms, Some(1000));
+        assert_eq!(args.lines, Some(25));
+        assert_eq!(args.sort, Some(SortColumn::Rate10s));
+        assert_eq!(args.pcap_file.as_deref(), Some("sample.pcap"));
+        assert_eq!(args.output.as_deref(), Some("json"));
+        assert_eq!(args.aggregate.as_deref(), Some("pair"));
+        assert_eq!(args.alert_rate_bps, Some(100000.0));
+        assert_eq!(args.alert_pps, Some(500.0));
+    }
+
+    #[test]
+    fn test_cli_sort_column_enum() {
+        let args2s = Args::try_parse_from(["riftop", "--sort", "2s"]).unwrap();
+        assert_eq!(args2s.sort, Some(SortColumn::Rate2s));
+
+        let args40s = Args::try_parse_from(["riftop", "--sort", "40s"]).unwrap();
+        assert_eq!(args40s.sort, Some(SortColumn::Rate40s));
+
+        let args_src = Args::try_parse_from(["riftop", "--sort", "source"]).unwrap();
+        assert_eq!(args_src.sort, Some(SortColumn::Source));
+
+        let args_dst = Args::try_parse_from(["riftop", "--sort", "destination"]).unwrap();
+        assert_eq!(args_dst.sort, Some(SortColumn::Destination));
+    }
+}

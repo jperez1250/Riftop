@@ -52,3 +52,36 @@ pub fn warn_if_root(stderr: &mut dyn Write) -> io::Result<()> {
 pub fn setcap_hint(binary: &str) -> String {
     format!("sudo setcap cap_net_raw,cap_net_admin=eip {binary}")
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_root_returns_bool() {
+        // Just verify execution does not panic on the system
+        let _root = is_root();
+    }
+
+    #[test]
+    fn test_warn_if_root_buffer() {
+        let mut buf = Vec::new();
+        warn_if_root(&mut buf).unwrap();
+        if is_root() {
+            let s = String::from_utf8(buf).unwrap();
+            assert!(s.contains("warning: running as root"));
+        } else {
+            assert!(buf.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_setcap_hint_formatting() {
+        let hint = setcap_hint("/usr/local/bin/riftop");
+        assert_eq!(
+            hint,
+            "sudo setcap cap_net_raw,cap_net_admin=eip /usr/local/bin/riftop"
+        );
+    }
+}

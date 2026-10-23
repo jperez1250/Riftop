@@ -163,3 +163,85 @@ pub fn format_iface_table(ifaces: &[IfaceInfo], netns: Option<&str>) -> String {
     }
     s
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_iface_kind_as_str() {
+        assert_eq!(IfaceKind::Loopback.as_str(), "lo");
+        assert_eq!(IfaceKind::Ethernet.as_str(), "eth");
+        assert_eq!(IfaceKind::Vlan.as_str(), "vlan");
+        assert_eq!(IfaceKind::Bond.as_str(), "bond");
+        assert_eq!(IfaceKind::Bridge.as_str(), "br");
+        assert_eq!(IfaceKind::Wireless.as_str(), "wifi");
+        assert_eq!(IfaceKind::Virtual.as_str(), "virt");
+        assert_eq!(IfaceKind::Other.as_str(), "other");
+    }
+
+    #[test]
+    fn test_classify_names() {
+        assert_eq!(classify("lo"), IfaceKind::Loopback);
+        assert_eq!(classify("lo:0"), IfaceKind::Loopback);
+        assert_eq!(classify("eth0"), IfaceKind::Ethernet);
+        assert_eq!(classify("eno1"), IfaceKind::Ethernet);
+        assert_eq!(classify("ens33"), IfaceKind::Ethernet);
+        assert_eq!(classify("eth0.100"), IfaceKind::Vlan);
+        assert_eq!(classify("vlan10"), IfaceKind::Vlan);
+        assert_eq!(classify("bond0"), IfaceKind::Bond);
+        assert_eq!(classify("br0"), IfaceKind::Bridge);
+        assert_eq!(classify("bridge0"), IfaceKind::Bridge);
+        assert_eq!(classify("wlan0"), IfaceKind::Wireless);
+        assert_eq!(classify("wlp2s0"), IfaceKind::Wireless);
+        assert_eq!(classify("veth123"), IfaceKind::Virtual);
+        assert_eq!(classify("docker0"), IfaceKind::Virtual);
+        assert_eq!(classify("tun0"), IfaceKind::Virtual);
+        assert_eq!(classify("tap0"), IfaceKind::Virtual);
+        assert_eq!(classify("unknown0"), IfaceKind::Other);
+    }
+
+    #[test]
+    fn test_format_iface_table() {
+        let ifaces = vec![
+            IfaceInfo {
+                name: "eth0".into(),
+                addrs: vec![IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))],
+                kind: IfaceKind::Ethernet,
+                is_up_guess: true,
+            },
+            IfaceInfo {
+                name: "lo".into(),
+                addrs: vec![],
+                kind: IfaceKind::Loopback,
+                is_up_guess: true,
+            },
+        ];
+
+        let out = format_iface_table(&ifaces, Some("netns:[12345]"));
+        assert!(out.contains("netns: netns:[12345]"));
+        assert!(out.contains("eth0"));
+        assert!(out.contains("192.168.1.100"));
+        assert!(out.contains("lo"));
+        assert!(out.contains("-")); // empty address placeholder
+    }
+
+    #[test]
+    fn test_list_interfaces_and_pick_default() {
+        let res_inc = list_interfaces(true);
+        assert!(res_inc.is_ok());
+
+        let res_exc = list_interfaces(false);
+        assert!(res_exc.is_ok());
+
+        let _def = pick_default_interface();
+    }
+
+    #[test]
+    fn test_netns_functions() {
+        let _id = current_netns_id();
+        let _names = list_netns_names();
+    }
+}
