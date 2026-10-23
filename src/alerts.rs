@@ -99,3 +99,146 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::FlowTable;
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_default() {
+        let engine = AlertEngine::default();
+        assert!(engine.config.rate_bps.is_none());
+        assert!(engine.config.pps.is_none());
+        assert_eq!(engine.recent().count(), 0);
+        assert!(engine.latest_messages(5).is_empty());
+    }
+
+    #[test]
+    fn test_alert_rate_threshold() {
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let ip_a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let ip_b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+        table.record(ip_a, ip_b, 1000, 80, 6, 10_000, &[ip_a], t0, None);
+        table.record(
+            ip_a,
+            ip_b,
+            1000,
+            80,
+            6,
+            10_000,
+            &[ip_a],
+            t0 + Duration::from_secs(1),
+            None,
+        );
+
+        let t_eval = t0 + Duration::from_secs(1);
+        let snap = table.snapshot(10, t_eval);
+
+        let config = AlertConfig {
+            rate_bps: Some(1000.0), // Total 20_000 bytes over 10s window yields 2000.0 B/s
+            pps: None,
+        };
+        let mut engine = AlertEngine::new(config);
+        engine.evaluate(&snap, t_eval);
+
+        assert_eq!(engine.recent().count(), 1);
+        let latest = engine.latest_messages(1);
+        assert_eq!(latest.len(), 1);
+        assert!(latest[0].contains("RATE 10.0.0.1"));
+    }
+
+    #[test]
+    fn test_alert_pps_threshold() {
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let ip_a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let ip_b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+        for i in 0..100 {
+            table.record(
+                ip_a,
+                ip_b,
+                1000,
+                80,
+                6,
+                100,
+                &[ip_a],
+                t0 + Duration::from_millis(i * 10),
+                None,
+            );
+        }
+
+        let config = AlertConfig {
+            rate_bps: None,
+            pps: Some(50.0),
+        };
+        let mut engine = AlertEngine::new(config);
+
+        let snap1 = table.snapshot(10, t0);
+        engine.evaluate(&snap1, t0);
+        assert_eq!(engine.recent().count(), 0);
+
+        let t1 = t0 + Duration::from_secs(1);
+        for i in 0..100 {
+            table.record(
+                ip_a,
+                ip_b,
+                1000,
+                80,
+                6,
+                100,
+                &[ip_a],
+                t1 + Duration::from_millis(i * 5),
+                None,
+            );
+        }
+
+        let snap2 = table.snapshot(10, t1);
+        engine.evaluate(&snap2, t1);
+
+        assert_eq!(engine.recent().count(), 1);
+        let msgs = engine.latest_messages(10);
+        assert!(msgs[0].contains("PPS 100 >="));
+    }
+
+    #[test]
+    fn test_alert_deduplication_and_queue_bounding() {
+        let config = AlertConfig {
+            rate_bps: Some(10.0),
+            pps: None,
+        };
+        let mut engine = AlertEngine::new(config);
+
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let ip_a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let ip_b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+        table.record(ip_a, ip_b, 1000, 80, 6, 1000, &[ip_a], t0, None);
+
+        let snap = table.snapshot(10, t0);
+
+        // First evaluate pushes an alert
+        engine.evaluate(&snap, t0);
+        assert_eq!(engine.recent().count(), 1);
+
+        // Evaluating again with identical rate duplicate message won't push duplicate
+        engine.evaluate(&snap, t0);
+        assert_eq!(engine.recent().count(), 1);
+
+        // Bounding test with distinct alerts
+        for i in 0..30 {
+            engine.push(Alert {
+                when: t0,
+                message: format!("Unique alert #{i}"),
+            });
+        }
+        assert_eq!(engine.recent().count(), 20);
+        assert_eq!(engine.latest_messages(1)[0], "Unique alert #29");
+    }
+}
