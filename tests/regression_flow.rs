@@ -2,10 +2,13 @@
 //!
 //! IDs: R1–R8 documented in docs/legacy-analysis.md
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use riftop::alerts::{AlertConfig, AlertEngine};
 use riftop::export::json_escape;
 use riftop::flow::{FlowKey, FlowTable};
 use riftop::protocols::{decode_ethernet, DecodeResult};
@@ -69,4 +72,43 @@ fn fixture_directory_exists() {
         dir.is_dir(),
         "fixtures/pcap must exist for regression fixtures"
     );
+}
+
+#[test]
+fn test_expire_timestamp_regression() {
+    let now = Instant::now();
+    let future = now + Duration::from_secs(10);
+    let mut table = FlowTable::new();
+    let src = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    let dst = IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1));
+
+    // Record flow with timestamp in the future relative to `now`
+    table.record(src, dst, 80, 80, 6, 100, &[src], future, None);
+
+    // Call expire with `now`, which is earlier than `future` (last_seen)
+    table.expire(now, Duration::from_secs(5));
+}
+
+#[test]
+fn test_alert_engine_pps_timestamp_regression() {
+    let now = Instant::now();
+    let future = now + Duration::from_secs(10);
+    let mut table = FlowTable::new();
+    let src = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    let dst = IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1));
+
+    table.record(src, dst, 80, 80, 6, 100, &[src], now, None);
+
+    let mut engine = AlertEngine::new(AlertConfig {
+        pps: Some(100.0),
+        ..Default::default()
+    });
+
+    // Evaluated at future timestamp first
+    let snap_future = table.snapshot(10, future);
+    engine.evaluate(&snap_future, future);
+
+    // Evaluated at earlier timestamp `now` (timestamp regression)
+    let snap_now = table.snapshot(10, now);
+    engine.evaluate(&snap_now, now);
 }

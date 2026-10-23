@@ -238,7 +238,7 @@ impl FlowTable {
 
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
         self.flows
-            .retain(|_, s| now.duration_since(s.last_seen) < max_idle);
+            .retain(|_, s| now.saturating_duration_since(s.last_seen) < max_idle);
     }
 
     #[must_use]
