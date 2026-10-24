@@ -134,6 +134,11 @@ pub fn is_link_local_v6(addr: Ipv6Addr) -> bool {
     o[0] == 0xfe && (o[1] & 0xc0) == 0x80
 }
 
+pub fn is_link_local_v4(addr: Ipv4Addr) -> bool {
+    let o = addr.octets();
+    o[0] == 169 && o[1] == 254
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct PacketFilter {
     pub net4: Option<NetFilterV4>,
@@ -157,6 +162,8 @@ impl PacketFilter {
     pub fn accept(&self, src: IpAddr, dst: IpAddr) -> Option<bool> {
         if !self.allow_link_local {
             match (src, dst) {
+                (IpAddr::V4(s), _) if is_link_local_v4(s) => return None,
+                (_, IpAddr::V4(d)) if is_link_local_v4(d) => return None,
                 (IpAddr::V6(s), _) if is_link_local_v6(s) => return None,
                 (_, IpAddr::V6(d)) if is_link_local_v6(d) => return None,
                 _ => {}
@@ -224,6 +231,7 @@ pub fn bpf_expression(user: Option<&str>) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -234,5 +242,17 @@ mod tests {
         } else {
             panic!("failed to parse IPv4 CIDR");
         }
+    }
+
+    #[test]
+    fn test_is_link_local_v4() {
+        assert!(is_link_local_v4(Ipv4Addr::new(169, 254, 1, 1)));
+        assert!(!is_link_local_v4(Ipv4Addr::new(192, 168, 1, 1)));
+
+        let pf = PacketFilter::from_options(None, None, false).unwrap();
+        let ll_v4 = IpAddr::V4(Ipv4Addr::new(169, 254, 10, 20));
+        let g_v4 = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
+        assert!(pf.accept(ll_v4, g_v4).is_none());
+        assert!(pf.accept(g_v4, ll_v4).is_none());
     }
 }

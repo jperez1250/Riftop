@@ -73,7 +73,7 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => DnsState::Resolved(sanitize_hostname(&n)),
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +111,39 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+fn sanitize_hostname(s: &str) -> String {
+    let sanitized: String = s.chars().filter(|c| !c.is_control()).collect();
+    if sanitized.len() <= 253 {
+        sanitized
+    } else {
+        let mut end = 253;
+        while !sanitized.is_char_boundary(end) {
+            end -= 1;
+        }
+        sanitized[..end].to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_hostname_control_chars_and_length() {
+        let input = "host\x1b[31m\r\nname.example.com";
+        assert_eq!(sanitize_hostname(input), "host[31mname.example.com");
+
+        let long_input = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_input);
+        assert_eq!(sanitized.len(), 253);
+
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
+        cache.insert(ip, Some("evil\t\x00host.com".into()));
+        assert_eq!(cache.get(&ip), Some("evilhost.com".into()));
     }
 }
