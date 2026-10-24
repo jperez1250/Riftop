@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! Regression tests for network filters.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -5,7 +7,8 @@ use std::str::FromStr;
 use std::time::Instant;
 
 use riftop::filters::{
-    bpf_expression, is_link_local_v6, NetDirection, NetFilterV4, PacketFilter, ScreenFilter,
+    bpf_expression, is_link_local_v4, is_link_local_v6, NetDirection, NetFilterV4, PacketFilter,
+    ScreenFilter,
 };
 use riftop::flow::FlowTable;
 
@@ -78,6 +81,11 @@ fn link_local_dropped_by_default() {
     let ll = IpAddr::V6(Ipv6Addr::from_str("fe80::abcd").unwrap());
     let g = IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap());
     assert!(pf.accept(ll, g).is_none());
+
+    let ll_v4 = IpAddr::V4(Ipv4Addr::new(169, 254, 1, 1));
+    let g_v4 = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
+    assert!(pf.accept(ll_v4, g_v4).is_none());
+    assert!(pf.accept(g_v4, ll_v4).is_none());
 }
 
 #[test]
@@ -93,4 +101,7 @@ fn is_link_local_helper() {
     assert!(!is_link_local_v6(
         Ipv6Addr::from_str("2001:db8::1").unwrap()
     ));
+
+    assert!(is_link_local_v4(Ipv4Addr::new(169, 254, 1, 1)));
+    assert!(!is_link_local_v4(Ipv4Addr::new(10, 0, 0, 1)));
 }
