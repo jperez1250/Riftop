@@ -104,3 +104,57 @@ impl Config {
         self.output.as_deref().unwrap_or("tui")
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_cli_apply_defaults_and_overrides() {
+        let mut cfg = Config::default();
+        assert_eq!(cfg.interval_ms(), 1000);
+        assert_eq!(cfg.lines(), 20);
+        assert_eq!(cfg.aggregate(), "pair");
+        assert_eq!(cfg.output(), "tui");
+
+        cfg.apply_cli(
+            &Some("eth0".to_string()),
+            &Some("tcp".to_string()),
+            &Some("10.0.0.0/8".to_string()),
+            &None,
+            &None,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            Some(500),
+            Some(50),
+            Some("host"),
+            Some("2s"),
+            Some("json"),
+            Some(1000.0),
+            Some(50.0),
+        );
+
+        assert_eq!(cfg.interface.as_deref(), Some("eth0"));
+        assert_eq!(cfg.filter.as_deref(), Some("tcp"));
+        assert_eq!(cfg.net_filter.as_deref(), Some("10.0.0.0/8"));
+        assert!(cfg.no_dns);
+        assert!(cfg.no_port_resolution);
+        assert!(cfg.ports);
+        assert!(cfg.use_bytes);
+        assert!(cfg.no_bars);
+        assert!(cfg.link_local);
+        assert!(cfg.promiscuous);
+        assert_eq!(cfg.interval_ms(), 500);
+        assert_eq!(cfg.lines(), 50);
+        assert_eq!(cfg.aggregate(), "host");
+        assert_eq!(cfg.output(), "json");
+        assert_eq!(cfg.alert_rate_bps, Some(1000.0));
+        assert_eq!(cfg.alert_pps, Some(50.0));
+    }
+}

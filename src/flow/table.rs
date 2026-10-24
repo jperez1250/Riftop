@@ -238,7 +238,7 @@ impl FlowTable {
 
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
         self.flows
-            .retain(|_, s| now.duration_since(s.last_seen) < max_idle);
+            .retain(|_, s| now.saturating_duration_since(s.last_seen) < max_idle);
     }
 
     #[must_use]
@@ -248,5 +248,43 @@ impl FlowTable {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.flows.is_empty()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_flow_table_expire_normal_and_time_regression() {
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+        table.record(a, b, 80, 443, 6, 100, &[a], t0, None);
+        assert_eq!(table.len(), 1);
+
+        // Call expire with an earlier timestamp (time regression) - must NOT panic and NOT expire recent flow
+        let earlier = t0.checked_sub(Duration::from_secs(10)).unwrap_or(t0);
+        table.expire(earlier, Duration::from_secs(30));
+        assert_eq!(table.len(), 1);
+
+        // Call expire after max_idle - flow must expire
+        let later = t0 + Duration::from_secs(31);
+        table.expire(later, Duration::from_secs(30));
+        assert_eq!(table.len(), 0);
+    }
+
+    #[test]
+    fn test_sort_by_parse() {
+        assert_eq!(SortBy::parse("2s"), SortBy::Rate2s);
+        assert_eq!(SortBy::parse("40s"), SortBy::Rate40s);
+        assert_eq!(SortBy::parse("src"), SortBy::Source);
+        assert_eq!(SortBy::parse("dst"), SortBy::Destination);
+        assert_eq!(SortBy::parse("total"), SortBy::Total);
+        assert_eq!(SortBy::parse("unknown"), SortBy::Rate10s);
     }
 }

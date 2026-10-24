@@ -129,6 +129,11 @@ fn mask_addr_v6(addr: Ipv6Addr, mask: Ipv6Addr) -> Ipv6Addr {
     Ipv6Addr::from(out)
 }
 
+pub fn is_link_local_v4(addr: Ipv4Addr) -> bool {
+    let o = addr.octets();
+    o[0] == 169 && o[1] == 254
+}
+
 pub fn is_link_local_v6(addr: Ipv6Addr) -> bool {
     let o = addr.octets();
     o[0] == 0xfe && (o[1] & 0xc0) == 0x80
@@ -157,6 +162,8 @@ impl PacketFilter {
     pub fn accept(&self, src: IpAddr, dst: IpAddr) -> Option<bool> {
         if !self.allow_link_local {
             match (src, dst) {
+                (IpAddr::V4(s), _) if is_link_local_v4(s) => return None,
+                (_, IpAddr::V4(d)) if is_link_local_v4(d) => return None,
                 (IpAddr::V6(s), _) if is_link_local_v6(s) => return None,
                 (_, IpAddr::V6(d)) if is_link_local_v6(d) => return None,
                 _ => {}

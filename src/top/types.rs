@@ -72,3 +72,38 @@ pub fn format_top_row(row: &TopRow) -> (String, String, String, String, String) 
         format_bytes(row.bytes),
     )
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_view_mode_cycle_and_title() {
+        assert_eq!(ViewMode::Flows.title(), "Top flows");
+        assert_eq!(ViewMode::Flows.cycle(), ViewMode::Hosts);
+        assert_eq!(ViewMode::Hosts.cycle(), ViewMode::Ports);
+        assert_eq!(ViewMode::Ports.cycle(), ViewMode::Protocols);
+        assert_eq!(ViewMode::Protocols.cycle(), ViewMode::Flows);
+    }
+
+    #[test]
+    fn test_rank_ranking_and_truncation() {
+        let mut map = HashMap::new();
+        map.insert("a", (100u64, 1.0, 1.0, 1.0));
+        map.insert("b", (500u64, 5.0, 5.0, 5.0));
+
+        let ranked = rank(map, 1, |k| k.to_string());
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].label, "b");
+        assert_eq!(ranked[0].bytes, 500);
+
+        let (lbl, r2, r10, r40, b_str) = format_top_row(&ranked[0]);
+        assert_eq!(lbl, "b");
+        assert!(!r2.is_empty());
+        assert!(!r10.is_empty());
+        assert!(!r40.is_empty());
+        assert!(!b_str.is_empty());
+    }
+}

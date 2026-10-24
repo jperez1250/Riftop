@@ -148,3 +148,48 @@ pub fn write_csv(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_output_format_parse() {
+        assert_eq!(OutputFormat::parse("json"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("text"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("plain"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("csv"), OutputFormat::Csv);
+        assert_eq!(OutputFormat::parse("tui"), OutputFormat::Tui);
+        assert_eq!(OutputFormat::parse("other"), OutputFormat::Tui);
+    }
+
+    #[test]
+    fn test_json_escape_control_chars() {
+        assert_eq!(json_escape("hello"), "hello");
+        assert_eq!(json_escape("a\"b\\c\n\r\t"), "a\\\"b\\\\c\\n\\r\\t");
+        assert_eq!(json_escape("\x07"), "\\u0007");
+    }
+
+    #[test]
+    fn test_export_empty_table() {
+        let table = FlowTable::new();
+        let now = Instant::now();
+
+        let mut buf_json = Vec::new();
+        write_json(&mut buf_json, &table, now, 10, "eth0", SortBy::Rate10s).unwrap();
+        let s_json = String::from_utf8(buf_json).unwrap();
+        assert!(s_json.contains("\"interface\":\"eth0\""));
+        assert!(s_json.contains("\"flow_count\":0"));
+
+        let mut buf_text = Vec::new();
+        write_text(&mut buf_text, &table, now, 10, SortBy::Rate10s, true).unwrap();
+        let s_text = String::from_utf8(buf_text).unwrap();
+        assert!(s_text.contains("# packets_seen=0"));
+
+        let mut buf_csv = Vec::new();
+        write_csv(&mut buf_csv, &table, now, 10, SortBy::Rate10s, true).unwrap();
+        let s_csv = String::from_utf8(buf_csv).unwrap();
+        assert!(s_csv.contains("src,dst,sport,dport,proto,sent,recv,total"));
+    }
+}

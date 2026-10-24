@@ -113,3 +113,37 @@ impl DnsCache {
         ip.to_string()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_dns_cache_insert_get_display() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1));
+
+        // When not in cache
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.display(&ip, true), "1.1.1.1");
+        assert_eq!(cache.display(&ip, false), "1.1.1.1");
+
+        // After inserting resolved hostname
+        cache.insert(ip, Some("one.one.one.one".to_string()));
+        assert_eq!(cache.get(&ip), Some("one.one.one.one".to_string()));
+        assert_eq!(cache.display(&ip, true), "one.one.one.one");
+        assert_eq!(cache.display(&ip, false), "1.1.1.1");
+        assert_eq!(
+            cache.state(&ip),
+            Some(DnsState::Resolved("one.one.one.one".to_string()))
+        );
+
+        // After inserting negative entry
+        let ip2 = IpAddr::V4(Ipv4Addr::new(10, 255, 255, 255));
+        cache.insert(ip2, None);
+        assert_eq!(cache.get(&ip2), None);
+        assert_eq!(cache.state(&ip2), Some(DnsState::Negative));
+    }
+}
