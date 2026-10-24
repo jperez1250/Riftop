@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::manual_repeat_n)]
+
 //! Regression tests for network filters.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -5,7 +7,8 @@ use std::str::FromStr;
 use std::time::Instant;
 
 use riftop::filters::{
-    bpf_expression, is_link_local_v6, NetDirection, NetFilterV4, PacketFilter, ScreenFilter,
+    bpf_expression, is_link_local_v4, is_link_local_v6, NetDirection, NetFilterV4, NetFilterV6,
+    PacketFilter, ScreenFilter,
 };
 use riftop::flow::FlowTable;
 
@@ -75,9 +78,14 @@ fn packet_filter_counts_only_crossing_boundary() {
 #[test]
 fn link_local_dropped_by_default() {
     let pf = PacketFilter::from_options(None, None, false).unwrap();
-    let ll = IpAddr::V6(Ipv6Addr::from_str("fe80::abcd").unwrap());
-    let g = IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap());
-    assert!(pf.accept(ll, g).is_none());
+    let ll_v6 = IpAddr::V6(Ipv6Addr::from_str("fe80::abcd").unwrap());
+    let g_v6 = IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap());
+    assert!(pf.accept(ll_v6, g_v6).is_none());
+
+    let ll_v4 = IpAddr::V4(Ipv4Addr::new(169, 254, 1, 1));
+    let g_v4 = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
+    assert!(pf.accept(ll_v4, g_v4).is_none());
+    assert!(pf.accept(g_v4, ll_v4).is_none());
 }
 
 #[test]
@@ -89,8 +97,20 @@ fn screen_filter_substring() {
 
 #[test]
 fn is_link_local_helper() {
+    assert!(is_link_local_v4(Ipv4Addr::new(169, 254, 1, 10)));
+    assert!(!is_link_local_v4(Ipv4Addr::new(192, 168, 1, 1)));
     assert!(is_link_local_v6(Ipv6Addr::from_str("fe80::1").unwrap()));
     assert!(!is_link_local_v6(
         Ipv6Addr::from_str("2001:db8::1").unwrap()
     ));
+}
+
+#[test]
+fn net_filter_v6_parsing_and_classification() {
+    let f = NetFilterV6::parse("2001:db8::/32").unwrap();
+    let src = Ipv6Addr::from_str("2001:db8::1").unwrap();
+    let dst = Ipv6Addr::from_str("2001:4860:4860::8888").unwrap();
+    assert_eq!(f.classify(src, dst), NetDirection::Out);
+    assert_eq!(f.classify(dst, src), NetDirection::In);
+    assert_eq!(f.classify(src, src), NetDirection::Drop);
 }
