@@ -238,7 +238,7 @@ impl FlowTable {
 
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
         self.flows
-            .retain(|_, s| now.duration_since(s.last_seen) < max_idle);
+            .retain(|_, s| now.saturating_duration_since(s.last_seen) < max_idle);
     }
 
     #[must_use]
@@ -248,5 +248,33 @@ impl FlowTable {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.flows.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_expire_out_of_order_timestamp_does_not_panic() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let future_time = now + Duration::from_secs(10);
+
+        table.record(
+            "10.0.0.1".parse().unwrap(),
+            "10.0.0.2".parse().unwrap(),
+            12345,
+            80,
+            6,
+            100,
+            &[],
+            future_time,
+            None,
+        );
+
+        table.expire(now, Duration::from_secs(30));
+        assert_eq!(table.len(), 1);
     }
 }
