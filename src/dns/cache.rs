@@ -73,7 +73,14 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => {
+                let sanitized = sanitize_hostname(&n);
+                if sanitized.trim().is_empty() {
+                    DnsState::Negative
+                } else {
+                    DnsState::Resolved(sanitized)
+                }
+            }
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +118,45 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+fn sanitize_hostname(name: &str) -> String {
+    let mut cleaned: String = name.chars().filter(|c| !c.is_control()).collect();
+    if cleaned.len() > 253 {
+        let mut end = 253;
+        while end > 0 && !cleaned.is_char_boundary(end) {
+            end -= 1;
+        }
+        cleaned.truncate(end);
+    }
+    cleaned
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn sanitize_hostname_removes_control_chars() {
+        let raw = "evil.com\x00\x1b\r\n\t";
+        assert_eq!(sanitize_hostname(raw), "evil.com");
+    }
+
+    #[test]
+    fn sanitize_hostname_truncates_oversized_names() {
+        let long_name = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_name);
+        assert_eq!(sanitized.len(), 253);
+    }
+
+    #[test]
+    fn dns_cache_insert_handles_malicious_input() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1));
+        cache.insert(ip, Some("   \r\n\t   ".to_string()));
+        assert_eq!(cache.state(&ip), Some(DnsState::Negative));
     }
 }

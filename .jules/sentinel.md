@@ -1,0 +1,4 @@
+## 2025-05-18 - Untrusted DNS Hostname Control Character and Oversized String Sanitization
+**Vulnerability:** Reverse DNS lookups (PTR records) could return untrusted hostnames containing ANSI escape sequences, control characters (e.g. `\r`, `\n`), or arbitrarily long strings. When rendered in TUI or log displays, this could lead to terminal corruption, UI layout disruption, or log injection.
+**Learning:** `dns_lookup::lookup_addr` returns raw domain names directly from DNS servers. In Rust web/CLI apps with TUI or log outputs, untrusted external inputs like DNS names must be explicitly sanitized before caching or displaying.
+**Prevention:** Filter out `c.is_control()` characters and truncate strings to 253 bytes at `is_char_boundary` UTF-8 offsets before storing or rendering external DNS hostnames.
