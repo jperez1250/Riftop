@@ -21,6 +21,7 @@ jobs:
 
       - name: Label PR
         uses: actions/labeler@v4
+        continue-on-error: true
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
           configuration-path: .github/labeler.yml
