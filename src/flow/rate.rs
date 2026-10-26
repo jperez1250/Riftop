@@ -46,3 +46,39 @@ impl RateWindow {
         total as f64 / self.max_age.as_secs_f64()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_window_basic_and_merge() {
+        let mut rw = RateWindow::new(Duration::from_secs(10));
+        let t0 = Instant::now();
+
+        assert_eq!(rw.rate(t0), 0.0);
+
+        rw.add(t0, 1000);
+        // Add sample within 100ms window -> should merge
+        rw.add(t0 + Duration::from_millis(50), 500);
+        assert_eq!(rw.rate(t0 + Duration::from_millis(50)), 150.0);
+
+        // Add sample after 100ms window -> new bucket
+        rw.add(t0 + Duration::from_millis(200), 500);
+        assert_eq!(rw.rate(t0 + Duration::from_millis(200)), 200.0);
+    }
+
+    #[test]
+    fn test_rate_window_cutoff_and_zero() {
+        let mut rw = RateWindow::new(Duration::from_secs(2));
+        let t0 = Instant::now();
+
+        rw.add(t0, 1000);
+        assert_eq!(rw.rate(t0), 500.0);
+
+        // Advance time past cutoff window (2 seconds)
+        let t1 = t0 + Duration::from_secs(3);
+        assert_eq!(rw.rate(t1), 0.0);
+    }
+}

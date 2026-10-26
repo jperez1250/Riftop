@@ -99,3 +99,91 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::FlowTable;
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_rate_bps_trigger() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+        table.record(a, b, 1234, 80, 6, 5000, &[a], now, None);
+
+        let snap = table.snapshot(10, now);
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: Some(100.0),
+            pps: None,
+        });
+
+        engine.evaluate(&snap, now + Duration::from_millis(100));
+
+        let msgs = engine.latest_messages(10);
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].contains("RATE 10.0.0.1"));
+    }
+
+    #[test]
+    fn test_alert_pps_trigger() {
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+        let a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let b = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+        table.record(a, b, 1234, 80, 6, 100, &[a], t0, None);
+        let snap1 = table.snapshot(10, t0);
+
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: None,
+            pps: Some(10.0),
+        });
+        engine.evaluate(&snap1, t0);
+
+        let t1 = t0 + Duration::from_secs(1);
+        for _ in 0..100 {
+            table.record(a, b, 1234, 80, 6, 100, &[a], t1, None);
+        }
+        let snap2 = table.snapshot(10, t1);
+        engine.evaluate(&snap2, t1);
+
+        let msgs = engine.latest_messages(10);
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].contains("PPS"));
+    }
+
+    #[test]
+    fn test_alert_deduplication_and_max_keep() {
+        let mut engine = AlertEngine::new(AlertConfig::default());
+        let t0 = Instant::now();
+
+        engine.push(Alert {
+            when: t0,
+            message: "DUP_MSG".to_string(),
+        });
+        engine.push(Alert {
+            when: t0,
+            message: "DUP_MSG".to_string(),
+        });
+
+        assert_eq!(engine.latest_messages(10).len(), 1);
+
+        for i in 0..25 {
+            engine.push(Alert {
+                when: t0,
+                message: format!("MSG_{i}"),
+            });
+        }
+
+        let msgs = engine.latest_messages(50);
+        assert_eq!(msgs.len(), 20);
+        assert_eq!(msgs[0], "MSG_24");
+        assert_eq!(engine.recent().count(), 20);
+    }
+}
