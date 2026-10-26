@@ -73,7 +73,14 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => {
+                let sanitized = sanitize_hostname(&n);
+                if sanitized.is_empty() {
+                    DnsState::Negative
+                } else {
+                    DnsState::Resolved(sanitized)
+                }
+            }
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +118,35 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+/// Sanitize hostname from reverse DNS lookup by stripping control characters and bounding length to 253 bytes (RFC 1035).
+pub fn sanitize_hostname(s: &str) -> String {
+    let mut clean: String = s.chars().filter(|c| !c.is_control()).collect();
+    if clean.len() > 253 {
+        let mut end = 253;
+        while !clean.is_char_boundary(end) {
+            end -= 1;
+        }
+        clean.truncate(end);
+    }
+    clean
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_hostname_strips_control_chars_and_truncates() {
+        let dirty = "host\x00\n\r.example.com\t";
+        let clean = sanitize_hostname(dirty);
+        assert_eq!(clean, "host.example.com");
+
+        let long = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long);
+        assert_eq!(sanitized.len(), 253);
     }
 }
