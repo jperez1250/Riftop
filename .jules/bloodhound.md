@@ -1,0 +1,4 @@
+## 2025-05-20 - Top Ports Directional Accounting Logic Flaw
+**Issue:** In `src/top/ports.rs`, `top_ports` accumulated `s.bytes_a_to_b` and directional rates solely into `port_a` and `s.bytes_b_to_a` solely into `port_b`. Because both ports involved in a flow exchange traffic in both directions, destination/return traffic was missing from port accounting, undercounting port bandwidth usage by up to 50%.
+**Fix:** Updated `top_ports` to credit total flow bytes (`s.total_bytes`) and total rates (`s.rate_2s`, `s.rate_10s`, `s.rate_40s`) to both `port_a` and `port_b` (while checking `port_a != port_b` to prevent double-counting if a flow uses identical source and destination ports).
+**Prevention:** Always verify that aggregate metrics for network endpoints (hosts, ports, protocols) reflect full flow context rather than single-directional traffic counters. Accompany all aggregation logic with unit tests testing traffic in both directions.
