@@ -250,3 +250,64 @@ impl FlowTable {
         self.flows.is_empty()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sort_by_parse() {
+        assert_eq!(SortBy::parse("2s"), SortBy::Rate2s);
+        assert_eq!(SortBy::parse("10s"), SortBy::Rate10s);
+        assert_eq!(SortBy::parse("40s"), SortBy::Rate40s);
+        assert_eq!(SortBy::parse("src"), SortBy::Source);
+        assert_eq!(SortBy::parse("source"), SortBy::Source);
+        assert_eq!(SortBy::parse("dst"), SortBy::Destination);
+        assert_eq!(SortBy::parse("destination"), SortBy::Destination);
+        assert_eq!(SortBy::parse("total"), SortBy::Total);
+        assert_eq!(SortBy::parse("unknown_string"), SortBy::Rate10s);
+    }
+
+    #[test]
+    fn test_flow_table_new_and_empty() {
+        let mut table = FlowTable::new();
+        assert!(table.is_empty());
+        assert_eq!(table.len(), 0);
+
+        let now = Instant::now();
+        table.expire(now, Duration::from_secs(10));
+        assert!(table.is_empty());
+
+        let g = table.globals();
+        assert_eq!(g.packets_seen, 0);
+        assert_eq!(g.packets_accepted, 0);
+        assert_eq!(g.bytes_total, 0);
+    }
+
+    #[test]
+    fn test_flow_table_record_and_snapshot_sorting() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let a = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        let b1 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+        let b2 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 3));
+
+        table.record(a, b1, 1000, 80, 6, 100, &[a], now, None);
+        table.record(a, b2, 1000, 80, 6, 500, &[a], now, None);
+
+        assert_eq!(table.len(), 2);
+
+        let snap_total = table.snapshot_sorted(10, now, SortBy::Total);
+        assert_eq!(snap_total.flows.len(), 2);
+        assert_eq!(snap_total.flows[0].key.b, b2);
+        assert_eq!(snap_total.flows[1].key.b, b1);
+
+        let g = table.globals();
+        assert_eq!(g.packets_seen, 2);
+        assert_eq!(g.packets_accepted, 2);
+        assert_eq!(g.bytes_total, 600);
+        assert_eq!(g.bytes_sent, 600);
+    }
+}
