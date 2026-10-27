@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::manual_repeat_n)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 //! Regression tests for network filters.
 
