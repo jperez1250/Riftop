@@ -9,6 +9,20 @@ use crate::dns::worker::WorkerPool;
 
 const CACHE_TTL: Duration = Duration::from_secs(300);
 const NEGATIVE_TTL: Duration = Duration::from_secs(60);
+const MAX_HOSTNAME_LEN: usize = 253;
+
+fn sanitize_hostname(s: &str) -> String {
+    let filtered: String = s.chars().filter(|c| !c.is_control()).collect();
+    if filtered.len() <= MAX_HOSTNAME_LEN {
+        filtered
+    } else {
+        let mut end = MAX_HOSTNAME_LEN;
+        while end > 0 && !filtered.is_char_boundary(end) {
+            end -= 1;
+        }
+        filtered[..end].to_string()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DnsState {
@@ -73,7 +87,7 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => DnsState::Resolved(sanitize_hostname(&n)),
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +125,33 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_hostname_control_chars() {
+        let dirty = "host\r\nname\x1b[2J.example.com";
+        let clean = sanitize_hostname(dirty);
+        assert_eq!(clean, "hostname[2J.example.com");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_truncation() {
+        let long_name = "a".repeat(300);
+        let clean = sanitize_hostname(&long_name);
+        assert_eq!(clean.len(), 253);
+    }
+
+    #[test]
+    fn test_dns_cache_insert_sanitization() {
+        let cache = DnsCache::new();
+        let ip: IpAddr = "192.168.1.1".parse().unwrap();
+        cache.insert(ip, Some("bad\nhost.example.com".to_string()));
+        assert_eq!(cache.get(&ip), Some("badhost.example.com".to_string()));
     }
 }
