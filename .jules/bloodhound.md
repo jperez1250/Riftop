@@ -1,0 +1,4 @@
+## 2026-10-02 - One-Directional Traffic Drop in Top Ports Accounting
+**Issue:** `top_ports` in `src/top/ports.rs` accumulated only directional bytes (`bytes_a_to_b` for `port_a` and `bytes_b_to_a` for `port_b`) rather than total bidirectional flow bytes and rates. This resulted in omitting incoming response traffic on client ports and incoming request traffic on server ports, distorting top ports statistics.
+**Fix:** Updated `top_ports` to attribute total flow bytes (`s.total_bytes`) and overall flow rates across all time windows to `port_a` and `port_b`, while explicitly checking `port_b != port_a` to prevent double-counting when both endpoints use identical ports.
+**Prevention:** Always verify that port or protocol-level aggregations account for complete bidirectional flow metrics, and write unit tests checking both directional flows and identical endpoint parameters (e.g. `port_a == port_b`).
