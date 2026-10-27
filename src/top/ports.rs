@@ -7,7 +7,9 @@ use crate::top::types::{rank, TopRow};
 
 #[must_use]
 pub fn top_ports(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
-    let mut map: HashMap<u16, (u64, f64, f64, f64)> = HashMap::new();
+    // Pre-allocate capacity for up to 2 port entries per flow to eliminate HashMap re-allocations
+    let mut map: HashMap<u16, (u64, f64, f64, f64)> =
+        HashMap::with_capacity(snap.flows.len().saturating_mul(2));
     for s in &snap.flows {
         if s.key.port_a != 0 {
             let e_a = map.entry(s.key.port_a).or_insert((0, 0.0, 0.0, 0.0));

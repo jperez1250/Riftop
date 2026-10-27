@@ -1,0 +1,3 @@
+## 2026-10-27 - Pre-allocating HashMap and Vec capacity in Top aggregation routines
+**Learning:** Top aggregation functions (`top_hosts`, `top_ports`, `top_protocols`) and `rank` run on every TUI render frame. Using `HashMap::new()` causes multiple dynamic re-allocations as flow entries are accumulated into map entries, and collecting from iterator into top row vectors triggers re-allocations when capacity is not pre-estimated.
+**Action:** Always pre-allocate capacity using `HashMap::with_capacity(snap.flows.len().saturating_mul(2))` for top hosts/ports and `Vec::with_capacity(limit)` in ranking functions to eliminate allocations in hot UI rendering paths.
