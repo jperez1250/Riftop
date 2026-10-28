@@ -127,8 +127,8 @@ impl FlowTable {
         }
         let entry = self
             .flows
-            .entry(key.clone())
-            .or_insert_with(|| FlowStats::new(key, now));
+            .entry(key)
+            .or_insert_with_key(|k| FlowStats::new(k.clone(), now));
         entry.record_endpoints(now, src, sport, bytes);
         entry.record(now, bytes, dir, tcp);
     }
@@ -184,8 +184,8 @@ impl FlowTable {
                     }
                     let entry = self
                         .flows
-                        .entry(key.clone())
-                        .or_insert_with(|| FlowStats::new(key, now));
+                        .entry(key)
+                        .or_insert_with_key(|k| FlowStats::new(k.clone(), now));
                     entry.record_endpoints(now, src, sport, bytes);
                     entry.record(now, bytes, dir, tcp);
                     return true;
@@ -212,7 +212,8 @@ impl FlowTable {
     }
 
     pub fn top_sorted(&self, n: usize, now: Instant, sort: SortBy) -> Vec<&FlowStats> {
-        let mut list: Vec<&FlowStats> = self.flows.values().collect();
+        let mut list: Vec<&FlowStats> = Vec::with_capacity(self.flows.len());
+        list.extend(self.flows.values());
         list.sort_by(|a, b| match sort {
             SortBy::Rate2s => rate_ord(a.rate_2s(now), b.rate_2s(now)),
             SortBy::Rate10s => rate_ord(a.rate_10s(now), b.rate_10s(now)),
@@ -221,7 +222,8 @@ impl FlowTable {
             SortBy::Source => a.key.a.cmp(&b.key.a),
             SortBy::Destination => a.key.b.cmp(&b.key.b),
         });
-        list.into_iter().take(n).collect()
+        list.truncate(n);
+        list
     }
 
     pub fn snapshot(&self, n: usize, now: Instant) -> Snapshot {
