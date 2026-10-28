@@ -163,3 +163,40 @@ pub fn format_iface_table(ifaces: &[IfaceInfo], netns: Option<&str>) -> String {
     }
     s
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_classify_interface() {
+        assert_eq!(classify("lo"), IfaceKind::Loopback);
+        assert_eq!(classify("eth0"), IfaceKind::Ethernet);
+        assert_eq!(classify("eth0.100"), IfaceKind::Vlan);
+        assert_eq!(classify("vlan10"), IfaceKind::Vlan);
+        assert_eq!(classify("bond0"), IfaceKind::Bond);
+        assert_eq!(classify("br0"), IfaceKind::Bridge);
+        assert_eq!(classify("wlan0"), IfaceKind::Wireless);
+        assert_eq!(classify("veth1234"), IfaceKind::Virtual);
+        assert_eq!(classify("docker0"), IfaceKind::Virtual);
+        assert_eq!(classify("unknown0"), IfaceKind::Other);
+    }
+
+    #[test]
+    fn test_format_iface_table() {
+        let ifaces = vec![IfaceInfo {
+            name: "eth0".to_string(),
+            addrs: vec![IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10))],
+            kind: IfaceKind::Ethernet,
+            is_up_guess: true,
+        }];
+
+        let table = format_iface_table(&ifaces, Some("testns"));
+        assert!(table.contains("netns: testns"));
+        assert!(table.contains("eth0"));
+        assert!(table.contains("eth"));
+        assert!(table.contains("192.168.1.10"));
+    }
+}
