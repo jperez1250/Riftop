@@ -73,7 +73,7 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => DnsState::Resolved(sanitize_hostname(&n)),
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +111,55 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+/// Sanitize hostname by removing control characters and bounding length to 253 bytes (RFC 1035).
+pub fn sanitize_hostname(s: &str) -> String {
+    let filtered: String = s.chars().filter(|c| !c.is_control()).collect();
+    if filtered.len() <= 253 {
+        filtered
+    } else {
+        let mut end = 253;
+        while !filtered.is_char_boundary(end) {
+            end -= 1;
+        }
+        filtered[..end].to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_hostname_valid() {
+        assert_eq!(sanitize_hostname("example.com"), "example.com");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_strips_control_chars() {
+        assert_eq!(
+            sanitize_hostname("host\x1b[31m.example\n.com\r\t\0"),
+            "host[31m.example.com"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_hostname_length_bounding() {
+        let long_host = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_host);
+        assert_eq!(sanitized.len(), 253);
+        assert_eq!(sanitized, "a".repeat(253));
+    }
+
+    #[test]
+    fn test_sanitize_hostname_multibyte_utf8_boundary() {
+        // '🦀' is 4 bytes in UTF-8
+        let prefix = "a".repeat(251);
+        let input = format!("{prefix}🦀🦀");
+        let sanitized = sanitize_hostname(&input);
+        assert!(sanitized.len() <= 253);
+        assert_eq!(sanitized, prefix);
     }
 }
