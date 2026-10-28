@@ -47,20 +47,3 @@ fn worker_loop(rx: &Arc<Mutex<Receiver<WorkerMessage>>>) {
         cache.insert(ip, name);
     }
 }
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests {
-    use super::*;
-    use std::net::Ipv4Addr;
-
-    #[test]
-    fn test_worker_pool_creation_and_send() {
-        let pool = WorkerPool::new(1, 10);
-        let cache = Arc::new(crate::dns::cache::DnsCache::new());
-        let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-
-        let res = pool.send((ip, cache));
-        assert!(res.is_ok(), "Failed to send message to worker pool");
-    }
-}

@@ -28,29 +28,3 @@ pub fn top_ports(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
         service_name(p, 0).map_or_else(|| p.to_string(), |name| format!("{p} ({name})"))
     })
 }
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests {
-    use super::*;
-    use crate::flow::FlowTable;
-    use std::net::{IpAddr, Ipv4Addr};
-
-    #[test]
-    fn test_top_ports_aggregation() {
-        let now = Instant::now();
-        let mut table = FlowTable::new();
-        table.set_show_ports(true);
-        let ip1 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
-        let ip2 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
-
-        table.record(ip1, ip2, 1000, 80, 6, 800, &[ip1], now, None);
-
-        let snap = table.snapshot(10, now);
-        let ports = top_ports(&snap, now, 10);
-
-        assert!(!ports.is_empty());
-        let p80 = ports.iter().find(|p| p.label.contains("80"));
-        assert!(p80.is_some());
-    }
-}

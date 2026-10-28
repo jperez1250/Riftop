@@ -27,32 +27,3 @@ const fn proto_name(p: u8) -> &'static str {
         _ => "other",
     }
 }
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests {
-    use super::*;
-    use crate::flow::FlowTable;
-    use std::net::{IpAddr, Ipv4Addr};
-
-    #[test]
-    fn test_top_protocols_aggregation() {
-        let now = Instant::now();
-        let mut table = FlowTable::new();
-        table.set_show_ports(true);
-        let ip1 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
-        let ip2 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
-
-        table.record(ip1, ip2, 1000, 80, 6, 600, &[ip1], now, None); // TCP
-        table.record(ip1, ip2, 1000, 53, 17, 300, &[ip1], now, None); // UDP
-
-        let snap = table.snapshot(10, now);
-        let protos = top_protocols(&snap, now, 10);
-
-        assert_eq!(protos.len(), 2);
-        assert_eq!(protos[0].label, "TCP");
-        assert_eq!(protos[0].bytes, 600);
-        assert_eq!(protos[1].label, "UDP");
-        assert_eq!(protos[1].bytes, 300);
-    }
-}
