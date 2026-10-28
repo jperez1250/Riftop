@@ -1,5 +1,3 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 //! Regression tests against PCAP fixtures (no root required).
 //!
 //! IDs: R1–R8 documented in docs/legacy-analysis.md
