@@ -1,0 +1,4 @@
+## 2025-02-23 - Misattributed directionality in `FlowStats::record_endpoints` when `port_a` is 0
+**Issue:** `FlowStats::record_endpoints` checked `if self.key.port_a != 0` before matching `(src, sport) == (self.key.a, self.key.port_a)`. When `port_a == 0` (e.g. ICMP or loopback traffic), it fell back to `src == self.key.a`. For loopback/same-IP flows (`127.0.0.1 -> 127.0.0.1`), packets sent from endpoint B (`127.0.0.1:8080`) were incorrectly matched as coming from endpoint A because `src == self.key.a` evaluated to `true`, incorrectly attributing `bytes_b_to_a` to `bytes_a_to_b`.
+**Fix:** Removed the `if self.key.port_a != 0` branch and directly check `(src, sport) == (self.key.a, self.key.port_a)` in `record_endpoints`.
+**Prevention:** Always compare the full endpoint tuple `(src, sport)` against `(key.a, key.port_a)` when determining directionality in `FlowStats`.

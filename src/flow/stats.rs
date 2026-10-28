@@ -111,11 +111,7 @@ impl FlowStats {
     }
 
     pub fn record_endpoints(&mut self, now: Instant, src: IpAddr, sport: u16, bytes: u64) {
-        let is_a = if self.key.port_a != 0 {
-            (src, sport) == (self.key.a, self.key.port_a)
-        } else {
-            src == self.key.a
-        };
+        let is_a = (src, sport) == (self.key.a, self.key.port_a);
         if is_a {
             self.bytes_a_to_b += bytes;
             self.rate_a_to_b_2s.add(now, bytes);
@@ -159,5 +155,33 @@ impl FlowStats {
     }
     pub fn rate_40s(&self, now: Instant) -> f64 {
         self.rate_40s.rate(now)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_record_endpoints_zero_port_a_same_ip() {
+        let ip = "127.0.0.1".parse::<IpAddr>().unwrap();
+        // Construct key where port_a = 0 and port_b = 8080.
+        // FlowKey::new(ip, ip, 0, 8080, 6) -> (ip, 0) <= (ip, 8080) -> a=(ip, 0), b=(ip, 8080)
+        let key = FlowKey::new(ip, ip, 0, 8080, 6);
+        assert_eq!(key.a, ip);
+        assert_eq!(key.port_a, 0);
+        assert_eq!(key.b, ip);
+        assert_eq!(key.port_b, 8080);
+
+        let now = Instant::now();
+        let mut stats = FlowStats::new(key, now);
+
+        // Record a packet originating from endpoint B (ip, 8080)
+        stats.record_endpoints(now, ip, 8080, 100);
+
+        // Bytes sent from B should go to bytes_b_to_a, NOT bytes_a_to_b!
+        assert_eq!(stats.bytes_b_to_a, 100);
+        assert_eq!(stats.bytes_a_to_b, 0);
     }
 }
