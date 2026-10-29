@@ -1,0 +1,3 @@
+## 2025-05-18 - Avoid Key Cloning and Unnecessary Lookups in Hot Flow Table Ingestion
+**Learning:** In packet capture hot paths (`FlowTable::record`), calling `key.clone()` prior to map lookup clones data on every single packet. Furthermore, checking `!self.flows.contains_key(&key)` before `self.flows.len() >= MAX_FLOWS` causes redundant map lookups when under table capacity. Using `entry(key).or_insert_with_key(...)` moves the key into entry lookup and clones only on insertion, while placing `len() >= MAX_FLOWS` first short-circuits the lookup.
+**Action:** Always move owned lookup keys into `entry()` via `or_insert_with_key` in hot ingestion loops and evaluate $O(1)$ capacity guards before map key lookups.
