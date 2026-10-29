@@ -238,7 +238,7 @@ impl FlowTable {
 
     pub fn expire(&mut self, now: Instant, max_idle: Duration) {
         self.flows
-            .retain(|_, s| now.duration_since(s.last_seen) < max_idle);
+            .retain(|_, s| now.saturating_duration_since(s.last_seen) < max_idle);
     }
 
     #[must_use]
@@ -248,5 +248,35 @@ impl FlowTable {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.flows.is_empty()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_expire_regressed_timestamp_does_not_panic() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let future = now + Duration::from_secs(10);
+
+        table.record(
+            "192.168.1.1".parse().unwrap(),
+            "192.168.1.2".parse().unwrap(),
+            1234,
+            80,
+            6,
+            100,
+            &[],
+            future,
+            None,
+        );
+
+        // Expire called with `now` which is older than flow's `last_seen` (future).
+        table.expire(now, Duration::from_secs(5));
+        assert_eq!(table.len(), 1);
     }
 }
