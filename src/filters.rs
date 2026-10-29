@@ -224,6 +224,7 @@ pub fn bpf_expression(user: Option<&str>) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -234,5 +235,42 @@ mod tests {
         } else {
             panic!("failed to parse IPv4 CIDR");
         }
+    }
+
+    #[test]
+    fn test_net_filter_v4_invalid_and_edge_cases() {
+        assert!(NetFilterV4::parse("invalid_cidr").is_err());
+        assert!(NetFilterV4::parse("10.0.0.1/33").is_err());
+        assert!(NetFilterV4::parse("256.0.0.1/24").is_err());
+        assert!(NetFilterV4::parse("10.0.0.1/invalid_mask").is_err());
+
+        let net_mask = NetFilterV4::parse("10.0.0.0/255.255.255.0").unwrap();
+        assert!(net_mask.contains(Ipv4Addr::new(10, 0, 0, 42)));
+        assert!(!net_mask.contains(Ipv4Addr::new(10, 0, 1, 42)));
+    }
+
+    #[test]
+    fn test_net_filter_v6_invalid_and_edge_cases() {
+        assert!(NetFilterV6::parse("invalid_v6_cidr").is_err());
+        assert!(NetFilterV6::parse("fe80::1/129").is_err());
+        assert!(NetFilterV6::parse("fe80::1/invalid_mask").is_err());
+
+        let f = NetFilterV6::parse("2001:db8::/32").unwrap();
+        assert!(f.contains(Ipv6Addr::from_str("2001:db8::1").unwrap()));
+        assert!(!f.contains(Ipv6Addr::from_str("2001:db9::1").unwrap()));
+    }
+
+    #[test]
+    fn test_packet_filter_link_local() {
+        let pf = PacketFilter::from_options(None, None, false).unwrap();
+
+        let v6_ll = IpAddr::V6(Ipv6Addr::from_str("fe80::1").unwrap());
+        let v6_global = IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap());
+        assert_eq!(pf.accept(v6_ll, v6_global), None);
+
+        let v4_ll = IpAddr::V4(Ipv4Addr::new(169, 254, 1, 1));
+        let v4_global = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        // Test IPv4 link-local behavior when allow_link_local is false
+        assert_eq!(pf.accept(v4_ll, v4_global), Some(false));
     }
 }

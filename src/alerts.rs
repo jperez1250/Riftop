@@ -99,3 +99,131 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::{FlowKey, FlowStats, Globals};
+    use std::net::IpAddr;
+    use std::str::FromStr;
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_pps_and_rate() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: Some(100.0),
+            pps: Some(10.0),
+        });
+
+        let start = Instant::now();
+        let key = FlowKey::new(
+            IpAddr::from_str("10.0.0.1").unwrap(),
+            IpAddr::from_str("10.0.0.2").unwrap(),
+            12345,
+            80,
+            6,
+        );
+
+        let mut stats = FlowStats::new(key, start);
+        stats.record(
+            start + Duration::from_millis(100),
+            1500,
+            crate::flow::Direction::Sent,
+            None,
+        );
+
+        let snap = Snapshot {
+            taken_at: start,
+            globals: Globals {
+                packets_accepted: 100,
+                ..Default::default()
+            },
+            flows: vec![stats],
+        };
+
+        // First evaluate initializes last_check and last_pkt_count for pps, but evaluates rate
+        engine.evaluate(&snap, start + Duration::from_secs(1));
+        assert!(!engine.latest_messages(10).is_empty());
+
+        let snap2 = Snapshot {
+            taken_at: start + Duration::from_secs(2),
+            globals: Globals {
+                packets_accepted: 200,
+                ..Default::default()
+            },
+            flows: vec![],
+        };
+
+        // Second evaluate 1s later has 100 pkts / 1s = 100 pps >= 10.0 threshold
+        engine.evaluate(&snap2, start + Duration::from_secs(2));
+        let msgs = engine.latest_messages(10);
+        assert!(msgs.iter().any(|m| m.contains("PPS")));
+    }
+
+    #[test]
+    fn test_alert_engine_deduplication() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: Some(100.0),
+            pps: None,
+        });
+
+        let start = Instant::now();
+        let key = FlowKey::new(
+            IpAddr::from_str("10.0.0.1").unwrap(),
+            IpAddr::from_str("10.0.0.2").unwrap(),
+            12345,
+            80,
+            6,
+        );
+
+        let mut stats = FlowStats::new(key, start);
+        stats.record(
+            start + Duration::from_millis(100),
+            5000,
+            crate::flow::Direction::Sent,
+            None,
+        );
+
+        let snap = Snapshot {
+            taken_at: start,
+            globals: Globals::default(),
+            flows: vec![stats.clone()],
+        };
+
+        engine.evaluate(&snap, start + Duration::from_secs(1));
+        let count1 = engine.recent().count();
+        assert_eq!(count1, 1);
+
+        // Evaluate again with exact same snapshot and timestamp -> same alert message should be deduplicated
+        engine.evaluate(&snap, start + Duration::from_secs(1));
+        let count2 = engine.recent().count();
+        assert_eq!(count2, 1);
+    }
+
+    #[test]
+    fn test_alert_engine_max_keep_eviction() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: None,
+            pps: Some(1.0),
+        });
+
+        let start = Instant::now();
+        let mut total_pkts = 0;
+        for i in 1u64..=30u64 {
+            total_pkts += i * 100;
+            let snap = Snapshot {
+                taken_at: start + Duration::from_secs(i),
+                globals: Globals {
+                    packets_accepted: total_pkts,
+                    ..Default::default()
+                },
+                flows: vec![],
+            };
+            engine.evaluate(&snap, start + Duration::from_secs(i));
+        }
+
+        // Max keep is 20
+        assert_eq!(engine.recent().count(), 20);
+    }
+}
