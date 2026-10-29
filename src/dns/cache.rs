@@ -31,6 +31,43 @@ pub struct DnsCache {
     pool: WorkerPool,
 }
 
+fn sanitize_hostname(s: &str) -> Option<String> {
+    let mut clean = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if next.is_ascii_alphabetic() || next == '~' {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if !c.is_control() {
+            clean.push(c);
+        }
+    }
+
+    let trimmed = clean.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.len() > 253 {
+        let mut end = 253;
+        while !trimmed.is_char_boundary(end) {
+            end -= 1;
+        }
+        Some(trimmed[..end].to_string())
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 impl Default for DnsCache {
     fn default() -> Self {
         Self::new()
@@ -72,7 +109,7 @@ impl DnsCache {
     /// Insert or refresh an entry.
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
-        let state = match name {
+        let state = match name.as_deref().and_then(sanitize_hostname) {
             Some(n) => DnsState::Resolved(n),
             None => DnsState::Negative,
         };
@@ -111,5 +148,42 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_hostname_control_chars() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+
+        cache.insert(ip, Some("example.com\x1b[2J\n\r\t".to_string()));
+        assert_eq!(cache.get(&ip), Some("example.com".to_string()));
+    }
+
+    #[test]
+    fn test_sanitize_hostname_oversized() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+
+        let long_name = "a".repeat(300);
+        cache.insert(ip, Some(long_name));
+        let retrieved = cache.get(&ip).expect("hostname should be cached");
+        assert_eq!(retrieved.len(), 253);
+    }
+
+    #[test]
+    fn test_sanitize_hostname_only_control_chars() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 3));
+
+        cache.insert(ip, Some("\x1b[2J\n\r\t".to_string()));
+        assert_eq!(cache.get(&ip), None);
+        assert_eq!(cache.state(&ip), Some(DnsState::Negative));
     }
 }
