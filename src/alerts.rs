@@ -99,3 +99,59 @@ impl AlertEngine {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::FlowTable;
+    use std::net::IpAddr;
+    use std::time::Duration;
+
+    #[test]
+    fn test_alert_engine_rate_and_pps() {
+        let mut engine = AlertEngine::new(AlertConfig {
+            rate_bps: Some(100.0),
+            pps: Some(10.0),
+        });
+
+        let now = Instant::now();
+        let src: IpAddr = "192.168.1.1".parse().unwrap();
+        let dst: IpAddr = "192.168.1.2".parse().unwrap();
+
+        let mut table = FlowTable::new();
+        table.record(src, dst, 1234, 80, 6, 2000, &[], now, None);
+
+        let snap = table.snapshot(10, now);
+        engine.evaluate(&snap, now);
+
+        let snap2 = table.snapshot(10, now + Duration::from_secs(1));
+        engine.evaluate(&snap2, now + Duration::from_secs(1));
+
+        let recent: Vec<_> = engine.recent().collect();
+        assert!(!recent.is_empty());
+        let msgs = engine.latest_messages(5);
+        assert_eq!(msgs.len(), recent.len());
+    }
+
+    #[test]
+    fn test_alert_engine_deduplication_and_capacity() {
+        let mut engine = AlertEngine::new(AlertConfig::default());
+
+        for i in 0..30 {
+            engine.push(Alert {
+                when: Instant::now(),
+                message: format!("Alert {i}"),
+            });
+        }
+        assert_eq!(engine.recent().count(), 20);
+
+        // Deduplication test
+        let count_before = engine.recent().count();
+        engine.push(Alert {
+            when: Instant::now(),
+            message: "Alert 29".to_string(),
+        });
+        assert_eq!(engine.recent().count(), count_before);
+    }
+}
