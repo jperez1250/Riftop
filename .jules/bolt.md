@@ -1,0 +1,3 @@
+## 2025-05-18 - Pre-allocate HashMap and Vec capacity in Top-N aggregations
+**Learning:** Initializing HashMaps with default zero capacity causes repeated table resizes and rehashes when aggregating snapshot flows in `top_hosts`, `top_ports`, and `top_protocols`. Using `snap.flows.len()` as an estimated capacity eliminates hashtable reallocations. Likewise, pre-allocating `Vec::with_capacity(limit)` in `rank()` prevents dynamic vector growth during row formatting.
+**Action:** Always check `snap.flows.len()` or lower bounds when building temporary aggregation maps or result vectors from known-size snapshots.
