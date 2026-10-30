@@ -73,7 +73,7 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => DnsState::Resolved(sanitize_hostname(&n)),
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +111,55 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+fn sanitize_hostname(s: &str) -> String {
+    let sanitized: String = s.chars().filter(|c| !c.is_control()).collect();
+    if sanitized.len() > 253 {
+        let mut boundary = 253;
+        while boundary > 0 && !sanitized.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        sanitized[..boundary].to_string()
+    } else {
+        sanitized
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_hostname_control_chars() {
+        let input = "host\x1b[31m.example.com\n\r\t";
+        let sanitized = sanitize_hostname(input);
+        assert_eq!(sanitized, "host[31m.example.com");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_length_truncation() {
+        let long_host = "a".repeat(300);
+        let sanitized = sanitize_hostname(&long_host);
+        assert_eq!(sanitized.len(), 253);
+    }
+
+    #[test]
+    fn test_sanitize_hostname_utf8_boundary() {
+        let prefix = "a".repeat(252);
+        let input = format!("{prefix}🦀extra");
+        let sanitized = sanitize_hostname(&input);
+        assert_eq!(sanitized.len(), 252);
+        assert_eq!(sanitized, prefix);
+    }
+
+    #[test]
+    fn test_dns_cache_insert_sanitization() {
+        let cache = DnsCache::new();
+        let ip: IpAddr = "1.1.1.1".parse().unwrap();
+        cache.insert(ip, Some("bad\x07host.com\n".to_string()));
+        assert_eq!(cache.get(&ip), Some("badhost.com".to_string()));
     }
 }
