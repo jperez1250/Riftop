@@ -250,3 +250,104 @@ impl FlowTable {
         self.flows.is_empty()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sort_by_parse() {
+        assert_eq!(SortBy::parse("2s"), SortBy::Rate2s);
+        assert_eq!(SortBy::parse("40s"), SortBy::Rate40s);
+        assert_eq!(SortBy::parse("source"), SortBy::Source);
+        assert_eq!(SortBy::parse("src"), SortBy::Source);
+        assert_eq!(SortBy::parse("destination"), SortBy::Destination);
+        assert_eq!(SortBy::parse("dst"), SortBy::Destination);
+        assert_eq!(SortBy::parse("total"), SortBy::Total);
+        assert_eq!(SortBy::parse("other"), SortBy::Rate10s);
+    }
+
+    #[test]
+    fn test_flow_table_expiration() {
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+
+        let src1: IpAddr = "10.0.0.1".parse().unwrap();
+        let dst1: IpAddr = "10.0.0.2".parse().unwrap();
+        table.record(src1, dst1, 100, 200, 6, 500, &[], t0, None);
+
+        let src2: IpAddr = "10.0.0.3".parse().unwrap();
+        let dst2: IpAddr = "10.0.0.4".parse().unwrap();
+        table.record(
+            src2,
+            dst2,
+            100,
+            200,
+            6,
+            500,
+            &[],
+            t0 + Duration::from_secs(40),
+            None,
+        );
+
+        assert_eq!(table.len(), 2);
+
+        // Expire flows idle for more than 30s at t0 + 40s
+        table.expire(t0 + Duration::from_secs(40), Duration::from_secs(30));
+
+        // Flow 1 last seen at t0, so (t0 + 40s) - t0 = 40s >= 30s -> expired.
+        // Flow 2 last seen at t0 + 40s, so (t0 + 40s) - (t0 + 40s) = 0s < 30s -> retained.
+        assert_eq!(table.len(), 1);
+        let top = table.top(10, t0 + Duration::from_secs(40));
+        assert_eq!(top[0].key.a, src2);
+    }
+
+    #[test]
+    fn test_flow_table_sort_variants() {
+        let mut table = FlowTable::new();
+        let t0 = Instant::now();
+
+        let src1: IpAddr = "10.0.0.1".parse().unwrap();
+        let dst1: IpAddr = "10.0.0.5".parse().unwrap();
+        table.record(src1, dst1, 10, 20, 6, 1000, &[], t0, None);
+
+        let src2: IpAddr = "10.0.0.2".parse().unwrap();
+        let dst2: IpAddr = "10.0.0.4".parse().unwrap();
+        table.record(src2, dst2, 10, 20, 6, 500, &[], t0, None);
+
+        let top_total = table.top_sorted(2, t0, SortBy::Total);
+        assert_eq!(top_total[0].key.a, src1);
+        assert_eq!(top_total[1].key.a, src2);
+
+        let top_src = table.top_sorted(2, t0, SortBy::Source);
+        assert_eq!(top_src[0].key.a, src1);
+        assert_eq!(top_src[1].key.a, src2);
+
+        let top_dst = table.top_sorted(2, t0, SortBy::Destination);
+        assert_eq!(top_dst[0].key.b, dst2);
+        assert_eq!(top_dst[1].key.b, dst1);
+    }
+
+    #[test]
+    fn test_flow_table_aggregation_modes() {
+        let mut table = FlowTable::new();
+        table.set_aggregate(Aggregate::Source);
+        table.set_show_ports(false);
+
+        let t0 = Instant::now();
+        let src: IpAddr = "192.168.1.1".parse().unwrap();
+        let dst1: IpAddr = "192.168.1.2".parse().unwrap();
+        let dst2: IpAddr = "192.168.1.3".parse().unwrap();
+
+        table.record(src, dst1, 12345, 80, 6, 100, &[], t0, None);
+        table.record(src, dst2, 54321, 443, 6, 200, &[], t0, None);
+
+        assert_eq!(table.len(), 1);
+        let top = table.top(10, t0);
+        assert_eq!(top[0].total_bytes, 300);
+        assert_eq!(top[0].key.a, src);
+        assert_eq!(top[0].key.port_a, 0);
+        assert_eq!(top[0].key.port_b, 0);
+    }
+}

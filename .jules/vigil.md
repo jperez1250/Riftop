@@ -1,0 +1,4 @@
+## 2026-03-30 - Standardizing Module Test Harnesses and Clippy Target Exemption
+**Challenge:** Adding comprehensive unit tests into domain modules (`alerts`, `export`, `table`) caused `cargo clippy --all-targets` failures on `#![deny(clippy::unwrap_used)]` enforced globally across `src/` when test code used assertions or unwrap calls.
+**Strategy:** Annotated `#[cfg(test)] mod tests` inside `src/` modules with `#[allow(clippy::unwrap_used, clippy::expect_used)]` and crate-level `#![allow(clippy::unwrap_used, clippy::expect_used, clippy::manual_repeat_n)]` in `tests/*.rs` files.
+**Prevention:** Maintain strict `#![deny(clippy::unwrap_used)]` on production code while explicitly allowing idiomatic panicking helpers inside test modules to preserve clean CI lint runs without compromising production code safety guarantees.

@@ -148,3 +148,73 @@ pub fn write_csv(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::flow::FlowTable;
+    use std::net::IpAddr;
+
+    #[test]
+    fn test_output_format_parse() {
+        assert_eq!(OutputFormat::parse("json"), OutputFormat::Json);
+        assert_eq!(OutputFormat::parse("text"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("plain"), OutputFormat::Text);
+        assert_eq!(OutputFormat::parse("csv"), OutputFormat::Csv);
+        assert_eq!(OutputFormat::parse("anything_else"), OutputFormat::Tui);
+    }
+
+    #[test]
+    fn test_json_escape_controls() {
+        let input = "hello \"world\"\n\r\t\x07";
+        let escaped = json_escape(input);
+        assert_eq!(escaped, "hello \\\"world\\\"\\n\\r\\t\\u0007");
+    }
+
+    #[test]
+    fn test_export_empty_table() {
+        let table = FlowTable::new();
+        let now = Instant::now();
+
+        let mut json_buf = Vec::new();
+        write_json(&mut json_buf, &table, now, 10, "eth0", SortBy::Rate10s).unwrap();
+        let json_str = String::from_utf8(json_buf).unwrap();
+        assert!(json_str.contains("\"interface\":\"eth0\""));
+        assert!(json_str.contains("\"flows\":[]"));
+
+        let mut text_buf = Vec::new();
+        write_text(&mut text_buf, &table, now, 10, SortBy::Rate10s, true).unwrap();
+        let text_str = String::from_utf8(text_buf).unwrap();
+        assert!(text_str.contains("packets_seen=0"));
+        assert!(text_str.contains("accepted=0"));
+        assert!(text_str.contains("flows=0"));
+
+        let mut csv_buf = Vec::new();
+        write_csv(&mut csv_buf, &table, now, 10, SortBy::Rate10s, false).unwrap();
+        let csv_str = String::from_utf8(csv_buf).unwrap();
+        assert!(csv_str.starts_with("src,dst,sport,dport,proto,sent,recv,total,rate_2s_bits_sec"));
+    }
+
+    #[test]
+    fn test_export_populated_table_units() {
+        let mut table = FlowTable::new();
+        let now = Instant::now();
+        let src: IpAddr = "10.0.0.1".parse().unwrap();
+        let dst: IpAddr = "10.0.0.2".parse().unwrap();
+
+        table.record(src, dst, 8080, 80, 6, 1024, &[src], now, None);
+
+        let mut text_buf = Vec::new();
+        write_text(&mut text_buf, &table, now, 10, SortBy::Rate10s, false).unwrap();
+        let text_str = String::from_utf8(text_buf).unwrap();
+        assert!(text_str.contains("10.0.0.1"));
+        assert!(text_str.contains("10.0.0.2"));
+
+        let mut csv_buf = Vec::new();
+        write_csv(&mut csv_buf, &table, now, 10, SortBy::Rate10s, true).unwrap();
+        let csv_str = String::from_utf8(csv_buf).unwrap();
+        assert!(csv_str.contains("rate_2s_bytes_sec"));
+        assert!(csv_str.contains("10.0.0.1,10.0.0.2"));
+    }
+}
