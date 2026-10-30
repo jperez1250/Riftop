@@ -1,4 +1,5 @@
 //! Exhaustive 50-test automated suite for Riftop.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //!
 //! Covers: core API, config, CLI, packet decoding, linktypes, PCAP replay,
 //! flow tracking, direction, limits, rate windows, top statistics, exports,
@@ -58,7 +59,7 @@ fn make_ipv4_tcp_frame(
     f.extend_from_slice(&8192u16.to_be_bytes());
     f.extend_from_slice(&0u16.to_be_bytes());
     f.extend_from_slice(&0u16.to_be_bytes());
-    f.extend(std::iter::repeat(0xaa).take(payload_len));
+    f.extend(std::iter::repeat_n(0xaa, payload_len));
     f
 }
 
