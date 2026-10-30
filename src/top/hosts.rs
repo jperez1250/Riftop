@@ -7,7 +7,8 @@ use crate::top::types::{rank, TopRow};
 
 #[must_use]
 pub fn top_hosts(snap: &Snapshot, now: Instant, n: usize) -> Vec<TopRow> {
-    let mut map: HashMap<IpAddr, (u64, f64, f64, f64)> = HashMap::new();
+    // Pre-allocate hash map capacity based on snapshot flow count to avoid reallocations.
+    let mut map: HashMap<IpAddr, (u64, f64, f64, f64)> = HashMap::with_capacity(snap.flows.len());
     for s in &snap.flows {
         accumulate_host(&mut map, s, now);
     }
