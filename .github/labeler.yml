@@ -1,41 +1,30 @@
-# Labeler configuration for GitHub Actions PR labeling (v5 schema)
+# Labeler configuration for GitHub Actions PR labeling
 
 'area: flow':
-  - changed-files:
-      - any-glob-to-any-file: 'src/flow/**/*'
+  - 'src/flow/**/*'
 
 'area: capture':
-  - changed-files:
-      - any-glob-to-any-file: 'src/capture/**/*'
+  - 'src/capture/**/*'
 
 'area: ui':
-  - changed-files:
-      - any-glob-to-any-file: 'src/ui/**/*'
+  - 'src/ui/**/*'
 
 'area: config':
-  - changed-files:
-      - any-glob-to-any-file: 'src/config/**/*'
+  - 'src/config/**/*'
 
 'area: dns':
-  - changed-files:
-      - any-glob-to-any-file: 'src/dns/**/*'
+  - 'src/dns/**/*'
 
 'area: top':
-  - changed-files:
-      - any-glob-to-any-file: 'src/top/**/*'
+  - 'src/top/**/*'
 
 'area: tests':
-  - changed-files:
-      - any-glob-to-any-file: 'tests/**/*'
+  - 'tests/**/*'
 
 'area: docs':
-  - changed-files:
-      - any-glob-to-any-file:
-          - 'docs/**/*'
-          - '*.md'
+  - 'docs/**/*'
+  - '*.md'
 
 'area: ci':
-  - changed-files:
-      - any-glob-to-any-file:
-          - '.github/**/*'
-          - 'scripts/**/*'
+  - '.github/**/*'
+  - 'scripts/**/*'

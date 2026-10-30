@@ -1,15 +1,22 @@
-name: "Pull Request Labeler"
+name: label
+
 on:
   pull_request_target:
+    types: [opened, synchronize, reopened]
 
 jobs:
   label:
+    name: label
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
-    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/labeler@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Labeler
+        uses: actions/labeler@v4
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          configuration-path: .github/labeler.yml
