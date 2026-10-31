@@ -9,6 +9,20 @@ use crate::dns::worker::WorkerPool;
 
 const CACHE_TTL: Duration = Duration::from_secs(300);
 const NEGATIVE_TTL: Duration = Duration::from_secs(60);
+const MAX_DNS_NAME_LEN: usize = 253; // RFC 1035 max domain name length
+
+pub(crate) fn sanitize_dns_name(name: &str) -> String {
+    let filtered: String = name.chars().filter(|c| !c.is_ascii_control()).collect();
+    if filtered.len() <= MAX_DNS_NAME_LEN {
+        filtered
+    } else {
+        let mut idx = MAX_DNS_NAME_LEN;
+        while idx > 0 && !filtered.is_char_boundary(idx) {
+            idx -= 1;
+        }
+        filtered[..idx].to_string()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DnsState {
@@ -73,7 +87,7 @@ impl DnsCache {
     pub fn insert(&self, ip: IpAddr, name: Option<String>) {
         let mut guard = self.inner.lock();
         let state = match name {
-            Some(n) => DnsState::Resolved(n),
+            Some(n) => DnsState::Resolved(sanitize_dns_name(&n)),
             None => DnsState::Negative,
         };
         guard.insert(
@@ -111,5 +125,47 @@ impl DnsCache {
             }
         }
         ip.to_string()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn test_sanitize_dns_name_control_chars() {
+        let raw = "malicious\x1b[2J\x1b[H.example.com\r\n\t";
+        let sanitized = sanitize_dns_name(raw);
+        assert_eq!(sanitized, "malicious[2J[H.example.com");
+    }
+
+    #[test]
+    fn test_sanitize_dns_name_max_length() {
+        let long_name = "a".repeat(300);
+        let sanitized = sanitize_dns_name(&long_name);
+        assert_eq!(sanitized.len(), 253);
+        assert_eq!(sanitized, "a".repeat(253));
+    }
+
+    #[test]
+    fn test_sanitize_dns_name_utf8_boundary() {
+        // Multi-byte character '🦀' is 4 bytes.
+        // 250 'a's + '🦀' (4 bytes) = 254 bytes.
+        // Bounding at 253 bytes must not slice inside the 4-byte char.
+        let mut text = "a".repeat(250);
+        text.push('🦀');
+        let sanitized = sanitize_dns_name(&text);
+        assert_eq!(sanitized.len(), 250);
+        assert_eq!(sanitized, "a".repeat(250));
+    }
+
+    #[test]
+    fn test_dns_cache_insert_sanitizes() {
+        let cache = DnsCache::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        cache.insert(ip, Some("evil\n\rhost.com".to_string()));
+        assert_eq!(cache.get(&ip), Some("evilhost.com".to_string()));
     }
 }
