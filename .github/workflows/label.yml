@@ -1,7 +1,5 @@
-# This workflow will triage pull requests and apply a label based on the
-# paths that are modified in the pull request.
-
 name: Labeler
+
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -10,6 +8,7 @@ on:
 
 jobs:
   label:
+    name: Label PR
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -21,9 +20,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Run Labeler
+      - name: Label PR
         uses: actions/labeler@v5
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
-          configuration-path: .github/labeler.yml
-          sync-labels: false
