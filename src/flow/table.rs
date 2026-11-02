@@ -103,7 +103,8 @@ impl FlowTable {
             self.aggregate,
             self.show_ports,
         );
-        if !self.flows.contains_key(&key) && self.flows.len() >= MAX_FLOWS {
+        // Check capacity limit first to avoid redundant hash lookups on every packet.
+        if self.flows.len() >= MAX_FLOWS && !self.flows.contains_key(&key) {
             self.expire(now, Duration::from_secs(30));
             if self.flows.len() >= MAX_FLOWS {
                 return;
@@ -125,10 +126,11 @@ impl FlowTable {
             Direction::Received => self.globals.bytes_recv += bytes,
             Direction::Unknown => {}
         }
+        // Move `key` directly into `entry` and only clone on insertion, avoiding cloning for existing flows.
         let entry = self
             .flows
-            .entry(key.clone())
-            .or_insert_with(|| FlowStats::new(key, now));
+            .entry(key)
+            .or_insert_with_key(|k| FlowStats::new(k.clone(), now));
         entry.record_endpoints(now, src, sport, bytes);
         entry.record(now, bytes, dir, tcp);
     }
@@ -164,7 +166,8 @@ impl FlowTable {
                         self.aggregate,
                         self.show_ports,
                     );
-                    if !self.flows.contains_key(&key) && self.flows.len() >= MAX_FLOWS {
+                    // Check capacity limit first to avoid redundant hash lookups on every packet.
+                    if self.flows.len() >= MAX_FLOWS && !self.flows.contains_key(&key) {
                         self.expire(now, Duration::from_secs(30));
                         if self.flows.len() >= MAX_FLOWS {
                             return true;
@@ -182,10 +185,11 @@ impl FlowTable {
                         Direction::Received => self.globals.bytes_recv += bytes,
                         Direction::Unknown => {}
                     }
+                    // Move `key` directly into `entry` and only clone on insertion, avoiding cloning for existing flows.
                     let entry = self
                         .flows
-                        .entry(key.clone())
-                        .or_insert_with(|| FlowStats::new(key, now));
+                        .entry(key)
+                        .or_insert_with_key(|k| FlowStats::new(k.clone(), now));
                     entry.record_endpoints(now, src, sport, bytes);
                     entry.record(now, bytes, dir, tcp);
                     return true;

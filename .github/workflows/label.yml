@@ -1,0 +1,20 @@
+# This workflow will triage pull requests and apply a label based on the
+# paths that are modified in the pull request.
+
+name: "label"
+on:
+  - pull_request_target
+
+jobs:
+  label:
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/labeler@v5
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
