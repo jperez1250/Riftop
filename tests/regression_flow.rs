@@ -2,6 +2,8 @@
 //!
 //! IDs: R1–R8 documented in docs/legacy-analysis.md
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::manual_repeat_n)]
+
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::time::Instant;

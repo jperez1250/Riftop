@@ -103,7 +103,8 @@ impl FlowTable {
             self.aggregate,
             self.show_ports,
         );
-        if !self.flows.contains_key(&key) && self.flows.len() >= MAX_FLOWS {
+        // Check table capacity before hash lookup to short-circuit on packets under MAX_FLOWS
+        if self.flows.len() >= MAX_FLOWS && !self.flows.contains_key(&key) {
             self.expire(now, Duration::from_secs(30));
             if self.flows.len() >= MAX_FLOWS {
                 return;
@@ -125,10 +126,11 @@ impl FlowTable {
             Direction::Received => self.globals.bytes_recv += bytes,
             Direction::Unknown => {}
         }
+        // Move key into entry to avoid unconditional cloning when flow already exists
         let entry = self
             .flows
-            .entry(key.clone())
-            .or_insert_with(|| FlowStats::new(key, now));
+            .entry(key)
+            .or_insert_with_key(|k| FlowStats::new(k.clone(), now));
         entry.record_endpoints(now, src, sport, bytes);
         entry.record(now, bytes, dir, tcp);
     }
@@ -164,7 +166,8 @@ impl FlowTable {
                         self.aggregate,
                         self.show_ports,
                     );
-                    if !self.flows.contains_key(&key) && self.flows.len() >= MAX_FLOWS {
+                    // Check table capacity before hash lookup to short-circuit on packets under MAX_FLOWS
+                    if self.flows.len() >= MAX_FLOWS && !self.flows.contains_key(&key) {
                         self.expire(now, Duration::from_secs(30));
                         if self.flows.len() >= MAX_FLOWS {
                             return true;
@@ -182,10 +185,11 @@ impl FlowTable {
                         Direction::Received => self.globals.bytes_recv += bytes,
                         Direction::Unknown => {}
                     }
+                    // Move key into entry to avoid unconditional cloning when flow already exists
                     let entry = self
                         .flows
-                        .entry(key.clone())
-                        .or_insert_with(|| FlowStats::new(key, now));
+                        .entry(key)
+                        .or_insert_with_key(|k| FlowStats::new(k.clone(), now));
                     entry.record_endpoints(now, src, sport, bytes);
                     entry.record(now, bytes, dir, tcp);
                     return true;
@@ -221,7 +225,9 @@ impl FlowTable {
             SortBy::Source => a.key.a.cmp(&b.key.a),
             SortBy::Destination => a.key.b.cmp(&b.key.b),
         });
-        list.into_iter().take(n).collect()
+        // Truncate in-place to avoid redundant Vec reallocation
+        list.truncate(n);
+        list
     }
 
     pub fn snapshot(&self, n: usize, now: Instant) -> Snapshot {
